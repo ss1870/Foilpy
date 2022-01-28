@@ -1,13 +1,25 @@
-
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 import math
-# from mpl_toolkits import mplot3d
+
+
+class FoilAssembly:
+
+    def __init__(self, main_wing, stabiliser, mast, fuselage_length, mast_attachment_ratio, wing_angle=0,
+                 stabiliser_angle=0):
+        self.main_wing = main_wing
+        self.stabiliser = stabiliser
+        self.mast = mast
+        self.fuselage_length = fuselage_length
+        self.mast_attachment_ratio = mast_attachment_ratio
+        self.wing_angle = wing_angle
+        self.stabiliser_angle = stabiliser_angle
+
 
 class LiftingSurface:
 
-    def __init__(self, rt_chord, tip_chord, span, sweep_tip=0, sweep_curv=0, dih_tip=0, dih_curve=0):
+    def __init__(self, rt_chord, tip_chord, span, sweep_tip=0, sweep_curv=0, dih_tip=0, dih_curve=0, type='wing'):
         self.rt_chord = rt_chord
         self.tip_chord = tip_chord
         self.span = span
@@ -15,16 +27,23 @@ class LiftingSurface:
         self.sweep_curv = sweep_curv
         self.dih_tip = dih_tip
         self.dih_curve = dih_curve
+        self.type = type
 
     def generate_coords(self, npts=1001):
-        self.x = np.linspace(-self.span / 2, self.span / 2, npts).reshape(npts, 1)
+        if self.type == 'wing':
+            self.x = np.linspace(-self.span / 2, self.span / 2, npts).reshape(npts, 1)
+            self.f_chord = interp1d(np.array([-self.span / 2, 0, self.span / 2]),
+                                    np.array([self.tip_chord, self.rt_chord, self.tip_chord]))
+        elif self.type == 'mast':
+            self.x = np.linspace(0, self.span, npts).reshape(npts, 1)
+            self.f_chord = interp1d(np.array([0, self.span]),
+                                    np.array([self.rt_chord, self.tip_chord]))
+
         sweep_curv = self.sweep_tip * (2 * np.abs(self.x) / self.span) ** self.sweep_curv
         dihedral_curv = self.dih_tip * (2 * np.abs(self.x) / self.span) ** self.dih_curve
 
         self.ref_axis = np.hstack((self.x, sweep_curv, dihedral_curv))
 
-        self.f_chord = interp1d(np.array([-self.span / 2, 0, self.span / 2]),
-                                np.array([self.tip_chord, self.rt_chord, self.tip_chord]))
         chord = self.f_chord(self.x)
 
         dist_LE_2_refAxis = 0.5
@@ -72,9 +91,10 @@ class LiftingSurface:
         ax.plot3D(self.qu_chord_loc[:, 0], self.qu_chord_loc[:, 1], self.qu_chord_loc[:, 2],
                   'g--')  # plot quarter chord
         #         ax.axis('equal')
-        ax.set_xlim3d(-500, 500)
-        ax.set_ylim3d(-500, 500)
-        ax.set_zlim3d(-500, 500)
+        lim = 1.1 * self.span / 2
+        ax.set_xlim3d(-lim, lim)
+        ax.set_ylim3d(-lim, lim)
+        ax.set_zlim3d(-lim, lim)
         plt.show()
 
     def calc_simple_proj_wing_area(self):
@@ -140,7 +160,7 @@ class LiftingSurface:
         x8 = LE_CPs
         x9 = 0.75 * x1 + 0.25 * x2
         x10 = 0.75 * x4 + 0.25 * x3
-        xcp = 0.75 * x8 + 0.25 * x6
+        self.xcp = 0.75 * x8 + 0.25 * x6
 
         # Define segment normal vectors
         x6mx8 = x6 - x8
@@ -158,6 +178,7 @@ class LiftingSurface:
 
         # Generate bound vorticity for this wing
         nodes1 = np.vstack((x9, x10, x3, x2))
+        # print(nodes1)
         nodes2 = np.vstack((x10, x3, x2, x9))
         # BV order: All lifting-line BVs, RHS, TE, LHS (i.e. clockwise round the segment from above)
         BVs = map(VortexLine, nodes1, nodes2)
@@ -193,4 +214,3 @@ class VortexLine:
 
         self.elmtID = VortexLine.vortex_elmtID
         VortexLine.vortex_elmtID += 1
-
