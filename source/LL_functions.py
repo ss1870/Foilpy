@@ -1,36 +1,27 @@
 import numpy as np
 import math
+# from numba import jit
 
 
-def eval_biot_savart(xcp, vortices):
-    # print(query_pts)
+# @jit(nopython=True)
+def eval_biot_savart(xcp, xnode1, xnode2, gamma, l0):
 
-    ncps = xcp.shape[0]
-    nvrts = len(vortices)
+    xcp = xcp.reshape(-1, 1, 3)  # xcp shape (ncp, 1, 3)
+    r1 = xcp - xnode1  # r1 shape (ncp, nvl, 3)
+    r2 = xcp - xnode2  # r2 shape (ncp, nvl, 3)
 
-    xnode1 = np.concatenate([obj.node1.reshape(1, -1) for obj in vortices], axis=0)
-    xnode2 = np.concatenate([obj.node2.reshape(1, -1) for obj in vortices], axis=0)
-    gamma = np.array([obj.circ for obj in vortices]).reshape(1, 1, -1)
-    l0 = np.array([obj.length0 for obj in vortices]).reshape(1, 1, -1)
-    # print(gamma.shape)
+    r1_norm = np.sqrt(np.sum(r1 ** 2, axis=2))      # r1_norm shape = (ncp, nvl)
+    r1_norm = r1_norm.reshape(r1_norm.shape + (1,)) # add 3rd dimension
+    r2_norm = np.sqrt(np.sum(r2 ** 2, axis=2))      # r2_norm shape = (ncp, nvl)
+    r2_norm = r2_norm.reshape(r2_norm.shape + (1,)) # add 3rd dimension
 
-    r1 = xcp.reshape(ncps, 3, 1) - xnode1.reshape(1, 3, nvrts)
-    r2 = xcp.reshape(ncps, 3, 1) - xnode2.reshape(1, 3, nvrts)
-    # print(r1.shape)
-
-    r1_norm = np.linalg.norm(r1, axis=1, keepdims=True)
-    r2_norm = np.linalg.norm(r2, axis=1, keepdims=True)
-    # print(r1_norm.shape)
-
-    numer = gamma * (r1_norm + r2_norm) * np.cross(r1, r2, axisa=1, axisb=1, axisc=1)
-
+    cross_r1r2 = np.cross(r1, r2)
+    dotr1r2 = np.sum(r1 * r2, axis=2)
+    dotr1r2 = dotr1r2.reshape(dotr1r2.shape + (1,)) # add 3rd dimension
     r1r2 = r1_norm * r2_norm
-    r1r2dot = np.sum(r1 * r2, axis=1, keepdims=True)
-    denom = 4 * math.pi * r1r2 * (r1r2 + r1r2dot) + 0.025 * l0
 
-    ucp = numer / denom
+    numer = gamma * (r1_norm + r2_norm) * cross_r1r2
+    denom = 4 * math.pi * r1r2 * (r1r2 + dotr1r2) + (0.025 * l0) ** 2
+    u_gamma = numer / denom
 
-    print(ucp)
-    print(ucp.shape)
-    
-    return ucp
+    return u_gamma

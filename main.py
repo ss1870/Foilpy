@@ -1,5 +1,7 @@
 from source.classes import LiftingSurface, FoilAssembly
-from source.LL_functions import eval_biot_savart
+from source.LL_functions import eval_biot_savart, eval_biot_savart1
+import numpy as np
+from numpy import matlib
 
 # Instantiate a front wing
 front_wing = LiftingSurface(rt_chord=250,
@@ -44,9 +46,18 @@ mast = LiftingSurface(rt_chord=150,
 mast.generate_coords(npts=101)
 # mast.plot2D()
 
-V = eval_biot_savart(front_wing.xcp, front_wing.BVs)
+xnode1 = np.concatenate([obj.node1.reshape(1, 1, -1) for obj in front_wing.BVs], axis=1)
+xnode2 = np.concatenate([obj.node2.reshape(1, 1, -1) for obj in front_wing.BVs], axis=1)
+gamma = np.array([obj.circ for obj in front_wing.BVs]).reshape(1, -1, 1)
+l0 = np.array([obj.length0 for obj in front_wing.BVs]).reshape(1, -1, 1)
+
+xcp = front_wing.xcp
+
+V = eval_biot_savart(xcp, xnode1,  xnode2, gamma, l0)
 
 
-# print(front_wing.BVs[39].node1, front_wing.BVs[39].node2, front_wing.BVs[0].elmtID, front_wing.BVs[0].circ)
-# print(len(front_wing.BVs))
-# print(front_wing.BVs[-1].elmtID)
+# to-do:
+# - in LiftingSurface class: designate whether a BV is on the LL or not (vtype)
+# - write out circulation residual to be solved
+# - code up residual, implement some auto-diff of it
+
