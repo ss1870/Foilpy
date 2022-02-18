@@ -1,7 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d, UnivariateSpline
 import math
+from source.AeroPy.aeropy.xfoil_module import find_coefficients
 
 
 class FoilAssembly:
@@ -20,6 +21,8 @@ class FoilAssembly:
 class LiftingSurface:
 
     def __init__(self, rt_chord, tip_chord, span, sweep_tip=0, sweep_curv=0, dih_tip=0, dih_curve=0, type='wing'):
+        self.polar_re = None
+        self.polar = None
         self.rt_chord = rt_chord
         self.tip_chord = tip_chord
         self.span = span
@@ -109,14 +112,85 @@ class LiftingSurface:
         AR = self.span ** 2 / self.calc_trapz_proj_wing_area()
         return AR
 
+    def define_aerofoil(self, naca, plot_flag=True):
+        self.aerofoil_naca = naca
+        naca_numbers = naca.replace("naca", "")
+        max_camber = int(naca_numbers[0])
+        camber_dist = int(naca_numbers[1])
+        thick = int(naca_numbers[2:])
+
+        # basic x y coords
+        x_spacing = np.linspace(1, 0, 1000).reshape(-1, 1)
+        x = x_spacing
+        y = 5 * thick / 100 * (0.2969 * x ** 0.5 - 0.126 * x - 0.3516 * x ** 2 + 0.2843 * x ** 3 - 0.1036 * x ** 4)
+        xU = x
+        xL = np.flip(x)
+        yU = y
+        yL = - np.flip(y)
+
+        # add camber
+        yc = np.zeros(x.shape)
+        if max_camber != 0:
+            m = max_camber / 100
+            p = camber_dist / 10
+            yc = np.zeros(x.shape)
+            mask = x <= p
+            yc[mask] = m / (p ** 2) * (2 * p * x[mask] - x[mask] ** 2)
+            yc[~mask] = m / (1 - p) ** 2 * ((1 - 2 * p) + 2 * p * x[~mask] - x[~mask] ** 2)
+
+            dydx = np.zeros(x.shape)
+            dydx[mask] = 2 * m / p ** 2 * (p - x[mask])
+            dydx[~mask] = 2 * m / (1 - p) ** 2 * (p - x[~mask])
+            theta = np.arctan(dydx)
+            xU = xU - y * np.sin(theta)
+            xL = xL + np.flip(y * np.sin(theta))
+            yU = yc + y * np.cos(theta)
+            yL = np.flip(yc - y * np.cos(theta))
+
+        x = np.vstack((xU, xL))
+        y = np.vstack((yU, yL))
+        self.afoil_coords = np.hstack((x, y))
+
+        if plot_flag:
+            plt.plot(x_spacing, yc, '-.')
+            plt.plot(x, y, '-')
+            plt.grid(True)
+            plt.axis('scaled')
+            plt.show()
+
+    def compute_afoil_polar(self, angles, Re, plot_flag=False):
+        coeffs = find_coefficients(airfoil=self.aerofoil_naca, alpha=angles, Reynolds=Re, iteration=1000)
+
+        self.afoil_polar = np.hstack((np.array(coeffs["alpha"]).reshape(-1, 1),
+                                np.array(coeffs["CL"]).reshape(-1, 1),
+                                np.array(coeffs["CD"]).reshape(-1, 1),
+                                np.array(coeffs["CM"]).reshape(-1, 1)))
+        self.polar_re = Re
+
+        self.cl_spline = UnivariateSpline(self.afoil_polar[:,0], self.afoil_polar[:,1], s=0.1)
+        self.cd_spline = UnivariateSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 2], s=0.001)
+        self.cm_spline = UnivariateSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 3], s=0.0001)
+
+        if plot_flag:
+            plt.plot(self.afoil_polar[:,0], self.afoil_polar[:,1], '-')
+            plt.plot(self.afoil_polar[:, 0], self.afoil_polar[:, 2], '-')
+            plt.plot(self.afoil_polar[:, 0], self.afoil_polar[:, 3], '-')
+            plt.grid(True)
+            plt.xlabel('Angle of attack (deg)')
+            plt.ylabel('Coeff (-)')
+            plt.legend(['Cl', 'Cd', 'Cm'])
+            plt.show()
+
     def calc_lift(self, V, aoa, rho):
         LE_elmt_ctr = (self.LE[0:-1, :] + self.LE[1:, :]) / 2
         TE_elmt_ctr = (self.TE[0:-1, :] + self.TE[1:, :]) / 2
         chord_elmt_ctr = np.linalg.norm(LE_elmt_ctr - TE_elmt_ctr, axis=1) / 1000
         dX = (self.LE[1:, 0] - self.LE[0:-1, 0]) / 1000
 
+
+        cl = self.cl_spline.__call__(aoa)
         # Simple flat plate lift coefficient 2*pi*aoa
-        cl = 2.0 * math.pi * aoa * math.pi / 180.0
+        # cl = 2.0 * math.pi * aoa * math.pi / 180.0
 
         # compute lift per unit length @ elmt ctr
         # dL = 0.5*rho*V^2*c*cl
@@ -184,22 +258,6 @@ class LiftingSurface:
         BVs = map(VortexLine, nodes1, nodes2)
         self.BVs = list(BVs)
 
-
-class Aerofoil:
-
-    def __init__(self):
-        self.aero_polars = []
-
-    def get_cl(self, aoa):
-        cl = 2.0 * math.pi * aoa * math.pi / 180.0
-        return cl
-
-
-#     def load_coords(self, file):
-
-#     def compute_polar(self, angles, Re):
-
-#     def interp_polars(self, angle):
 
 class VortexLine:
     vortex_elmtID = 0
