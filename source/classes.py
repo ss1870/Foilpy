@@ -1,56 +1,168 @@
+from copy import deepcopy
+
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.interpolate import interp1d, UnivariateSpline
+from scipy.interpolate import interp1d, UnivariateSpline, CubicSpline
 import math
 from source.AeroPy.aeropy.xfoil_module import find_coefficients
 from source.LL_functions import rotation_matrix, translation_matrix, apply_rotation
 
 
+def ms2knts(velocity):
+    return velocity * 1.943844
+
+
+def knts2ms(velocity):
+    return velocity / 1.943844
+
+
 class FoilAssembly:
 
-    def __init__(self, main_wing, stabiliser, mast, fuselage_length, mast_attachment_ratio, wing_angle=0,
+    def __init__(self, main_wing0, stabiliser0, mast0, fuselage_length, mast_attachment_ratio, wing_angle=0,
                  stabiliser_angle=0):
-        self.main_wing = main_wing
-        self.stabiliser = stabiliser
-        self.mast = mast
+        self.main_wing0 = main_wing0
+        self.stabiliser0 = stabiliser0
+        self.mast0 = mast0
         self.fuselage_length = fuselage_length
         self.mast_attachment_ratio = mast_attachment_ratio
         self.wing_angle = wing_angle
         self.stabiliser_angle = stabiliser_angle
+        self.foil_angle = 0
 
-        # Here we assume origin (coordinate [0,0,0]) is the centre of the top of the mast
+        # declare current wing/mast/stab objects as deepcopies of initial wing/mast/stab objects
+        self.main_wing = deepcopy(main_wing0)
+        self.mast = deepcopy(mast0)
+        self.stabiliser = deepcopy(stabiliser0)
+
+        self.compute_CoG()
+
+        # Rotate current wing/mast/stab objects into required foil arrangement
+        # Assume origin (coordinate [0,0,0]) is the centre of the top of the mast
         # Mast rotate +90 degree about y axis, then translate mast.span in negative z
-        R_mast = np.dot(translation_matrix([0, 0, -mast.span]), rotation_matrix([0, 1, 0], -90))
-        mast.LE = apply_rotation(R_mast, mast.LE, 1)
-        mast.TE = apply_rotation(R_mast, mast.TE, 1)
-        mast.ref_axis = apply_rotation(R_mast, mast.ref_axis, 1)
-        mast.qu_chord_loc = apply_rotation(R_mast, mast.qu_chord_loc, 1)
-        # mast.plot3D()
+        R_mast = np.dot(translation_matrix([0, 0, -self.mast.span]), rotation_matrix([0, 1, 0], -90))
+        self.mast.rotate_component(R_mast)
+        # self.mast.plot3D()
+        # forces = self.mast.LL_strip_theory_forces(np.array([0,5,0]), 1025)
+        # print(np.sum(forces, axis=0))
 
         # Front wing: rotate by wing set angle, then translate z by mast span, and y positive by attachment ratio
-        R_front_wing = np.dot(translation_matrix([0, mast_attachment_ratio, -mast.span]),
+        R_front_wing = np.dot(translation_matrix([0, mast_attachment_ratio, -self.mast.span]),
                               rotation_matrix([1, 0, 0], wing_angle))
-        main_wing.LE = apply_rotation(R_front_wing, main_wing.LE, 1)
-        main_wing.TE = apply_rotation(R_front_wing, main_wing.TE, 1)
-        main_wing.ref_axis = apply_rotation(R_front_wing, main_wing.ref_axis, 1)
-        main_wing.qu_chord_loc = apply_rotation(R_front_wing, main_wing.qu_chord_loc, 1)
-        main_wing.plot3D()
+        self.main_wing.rotate_component(R_front_wing)
+        # self.main_wing.plot3D()
+        # forces = self.main_wing.LL_strip_theory_forces(np.array([0, 5, 0]), 1025)
+        # print("Main wing load vector = ", str(np.sum(forces, axis=0)), "\n")
 
         # Stabiliser: rotate by stab set angle, then translate z by mast span, and y negative by attachment ratio
-        R_stab = np.dot(translation_matrix([0, -(fuselage_length - mast_attachment_ratio), -mast.span]),
+        R_stab = np.dot(translation_matrix([0, -(fuselage_length - mast_attachment_ratio), -self.mast.span]),
                         rotation_matrix([1, 0, 0], stabiliser_angle))
-        stabiliser.LE = apply_rotation(R_stab, stabiliser.LE, 1)
-        stabiliser.TE = apply_rotation(R_stab, stabiliser.TE, 1)
-        stabiliser.ref_axis = apply_rotation(R_stab, stabiliser.ref_axis, 1)
-        stabiliser.qu_chord_loc = apply_rotation(R_stab, stabiliser.qu_chord_loc, 1)
-        stabiliser.plot3D()
+        self.stabiliser.rotate_component(R_stab)
+        # self.stabiliser.plot3D()
+        # forces = self.stabiliser.LL_strip_theory_forces(np.array([0, 5, 0]), 1025)
+        # print("Stabiliser wing load vector = ", str(np.sum(forces, axis=0)), "\n")
 
+    def plot_foil_assembly(self):
+        fig = plt.figure()
+        ax = fig.gca(projection="3d")
+        fig, ax = self.main_wing.plot3D(new_fig=False, fig =fig, ax=ax)
+        fig, ax = self.mast.plot3D(new_fig=False, fig=fig, ax=ax)
+        fig, ax = self.stabiliser.plot3D(new_fig=False, fig=fig, ax=ax)
+        ax.plot3D(self.cog[0], self.cog[1], self.cog[2], 'o')
+        plt.xlabel('x')
+        plt.ylabel('y - longitudinal')
+        # plt.zlabel('z - upward')
+        plt.show()
+
+    def compute_CoG(self):
+        # Mast
+        # mast_mass = 2.1kg # 75cm axis alu mast includes baseplate, doodad and bolts (https://www.standupzone.com/forum/index.php?topic=35177.810)
+        # Works out as 2.8kg per meter
+        # Therefore, 60cm mast (+doodad and baseplate) would weigh 1.68kg
+        self.mast0.mass = 2.8 * self.mast0.span/1000
+        self.mast0.cog = np.array([0, 0, -self.mast.span/2])
+
+        # Front wing
+        self.main_wing0.mass = 1.5 # guess
+        self.main_wing0.cog = np.array([0, self.mast_attachment_ratio, -self.mast.span]) # guess
+
+        # Stabiliser wing
+        self.stabiliser0.mass = 0.4  # guess
+        self.stabiliser0.cog = np.array([0, -(self.fuselage_length - self.mast_attachment_ratio), -self.mast.span])  # guess
+
+        # Fuselage
+        # fuselage_mass = 0.931 # short black
+        # fuselage longitudinal CoG = 295mm from the front
+        fuselage_mass = 0.931
+        fuselage_cog = np.array([0, -30, -self.mast.span])
+
+        # North board
+        # board_mass = 3.7 # kg
+        # Board CoG is 400mm infront of centre of foil mounting point. Assuming this is (0,0) on the foil CS
+        # Rider will stand with backfoot roughly above foil mounting point, and front foot roughly 670mm infront of this
+        board_mass = 3.7
+        board_cog = np.array([0, 400, 15])
+
+        # Me rider
+        # rider_mass = 72 # kg
+        # Guess rider CoG is roughly 900mm above feet and initially assume weight spread evenly between feet
+        rider_mass = 0 # 72
+        rider_cog = np.array([0, 0, 0]) # np.array([0, 385, 900])
+
+        self.total_mass = self.mast0.mass + self.main_wing0.mass + self.stabiliser0.mass + fuselage_mass + board_mass + rider_mass
+        cog = (self.mast0.mass*self.mast0.cog + self.main_wing0.mass*self.mast0.cog + self.stabiliser0.mass*self.mast0.cog + fuselage_mass*fuselage_cog + board_mass*board_cog + rider_mass*rider_cog)/self.total_mass
+        self.cog = cog.reshape(3,1)
+        print("Total mass = ", str(self.total_mass), "\n")
+        print("CoG location = ", str(self.cog), "\n")
+
+    def rotate_foil_assembly(self, rot_angle):
+        # X = pitch
+        # Y = roll
+        # Z = yaw
+        T = translation_matrix(-np.squeeze(self.cog))
+
+        if rot_angle[2] != 0:
+            rot_yaw = rotation_matrix([0, 0, 1], rot_angle[2])
+            R_yaw = np.dot(np.linalg.inv(T), np.dot(rot_yaw, T))
+            self.mast.rotate_component(R_yaw)
+            self.main_wing.rotate_component(R_yaw)
+            self.stabiliser.rotate_component(R_yaw)
+            # self.cog = apply_rotation(R_yaw, self.cog, 0)
+
+        if rot_angle[1] != 0:
+            rot_roll = rotation_matrix([0, 1, 0], rot_angle[1])
+            R_roll = np.dot(np.linalg.inv(T), np.dot(rot_roll, T))
+            self.mast.rotate_component(R_roll)
+            self.main_wing.rotate_component(R_roll)
+            self.stabiliser.rotate_component(R_roll)
+            # self.cog = apply_rotation(R_roll, self.cog, 0)
+
+        if rot_angle[0] != 0:
+            rot_pitch = rotation_matrix([1, 0, 0], rot_angle[0])
+            R_pitch = np.dot(np.linalg.inv(T), np.dot(rot_pitch, T))
+            self.mast.rotate_component(R_pitch)
+            self.main_wing.rotate_component(R_pitch)
+            self.stabiliser.rotate_component(R_pitch)
+            # self.cog = apply_rotation(R_pitch, self.cog, 0)
+
+    def compute_foil_loads(self, u_motion, rho):
+        main_wing_load = self.main_wing.LL_strip_theory_forces(u_motion, rho)
+        stab_wing_load = self.stabiliser.LL_strip_theory_forces(u_motion, rho)
+        mast_load = self.mast.LL_strip_theory_forces(u_motion, rho)
+
+        total_load = main_wing_load + stab_wing_load + mast_load
+
+        main_wing_moment = np.cross((self.main_wing.xcp-self.cog.reshape(-1,3))/1e3, main_wing_load[:,0:3])
+        stab_wing_moment = np.cross((self.stabiliser.xcp-self.cog.reshape(-1,3))/1e3, stab_wing_load[:,0:3])
+        mast_moment = np.cross((self.mast.xcp - self.cog.reshape(-1, 3))/1e3, mast_load[:, 0:3])
+
+        total_load[:, 3:] = total_load[:, 3:] + main_wing_moment + stab_wing_moment + mast_moment
+        return total_load
 
 class LiftingSurface:
 
-    def __init__(self, rt_chord, tip_chord, span, Re, sweep_tip=0, sweep_curv=0, dih_tip=0, dih_curve=0, afoil_name='naca0012', type='wing'):
-        self.polar_re = None
-        self.polar = None
+    def __init__(self, rt_chord, tip_chord, span, Re, sweep_tip=0, sweep_curv=0, dih_tip=0, dih_curve=0,
+                 afoil_name='naca0012', type='wing'):
+
         self.rt_chord = rt_chord
         self.tip_chord = tip_chord
         self.span = span
@@ -60,10 +172,20 @@ class LiftingSurface:
         self.dih_curve = dih_curve
         self.type = type
         self.afoil_name = afoil_name
+        self.a3 = None
+        self.a2 = None
+        self.a1 = None
+        self.xcp = None
+        self.qu_chord_loc = None
+        self.ref_axis = None
+        self.TE = None
+        self.LE = None
+        self.polar_re = None
+        self.polar = None
 
         self.generate_coords(npts=101)
         self.define_aerofoil(afoil_name, False)
-        self.compute_afoil_polar(angles=np.linspace(-5, 15, 21), Re=Re, plot_flag=True)
+        self.compute_afoil_polar(angles=np.linspace(-5, 15, 21), Re=Re, plot_flag=False)
         # # front_wing.plot2D()
         # # front_wing.plot3D()
         # print("Front wing area =", str(front_wing.calc_simple_proj_wing_area()))
@@ -123,23 +245,40 @@ class LiftingSurface:
         plt.axis('scaled')
         plt.show()
 
-    def plot3D(self):
-        x_coords = np.hstack((self.LE[:, 0], np.flip(self.LE[:, 0]), self.LE[0, 0]))
+    def plot3D(self, new_fig=True, fig=None, ax=None):
+        x_coords = np.hstack((self.LE[:, 0], np.flip(self.TE[:, 0]), self.LE[0, 0]))
         y_coords = np.hstack((self.LE[:, 1], np.flip(self.TE[:, 1]), self.LE[0, 1]))
         z_coords = np.hstack((self.LE[:, 2], np.flip(self.TE[:, 2]), self.LE[0, 2]))
 
-        fig = plt.figure()
-        ax = plt.axes(projection='3d')
+        if new_fig:
+            fig = plt.figure()
+            ax = fig.gca(projection="3d")
         ax.plot3D(x_coords, y_coords, z_coords, 'k-')
         ax.plot3D(self.ref_axis[:, 0], self.ref_axis[:, 1], self.ref_axis[:, 2], 'm-')  # plot ref axis
         ax.plot3D(self.qu_chord_loc[:, 0], self.qu_chord_loc[:, 1], self.qu_chord_loc[:, 2],
                   'g--')  # plot quarter chord
         #         ax.axis('equal')
-        lim = 1.1 * self.span / 2
-        ax.set_xlim3d(-lim, lim)
-        ax.set_ylim3d(-lim, lim)
-        ax.set_zlim3d(-lim, lim)
-        plt.show()
+        if new_fig:
+            lim = 1.1 * self.span / 2
+            ax.set_xlim3d(-lim, lim)
+            ax.set_ylim3d(-lim, lim)
+            ax.set_zlim3d(-lim, lim)
+            plt.show()
+        else:
+            return fig, ax
+
+    def rotate_component(self, R):
+        self.LE = apply_rotation(R, self.LE, 1)
+        self.TE = apply_rotation(R, self.TE, 1)
+        self.ref_axis = apply_rotation(R, self.ref_axis, 1)
+        self.qu_chord_loc = apply_rotation(R, self.qu_chord_loc, 1)
+        self.xcp = apply_rotation(R, self.xcp, 1)
+
+        R_rotate_only = deepcopy(R)
+        R_rotate_only[0:3, -1] = 0
+        self.a1 = apply_rotation(R_rotate_only, self.a1, 1)
+        self.a2 = apply_rotation(R_rotate_only, self.a2, 1)
+        self.a3 = apply_rotation(R_rotate_only, self.a3, 1)
 
     def calc_simple_proj_wing_area(self):
         area = 0.5 * (self.rt_chord + self.tip_chord) * self.span
@@ -208,12 +347,16 @@ class LiftingSurface:
                                       np.array(coeffs["CM"]).reshape(-1, 1)))
         self.polar_re = Re
 
-        self.cl_spline = UnivariateSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 1], s=0.1)
-        self.cd_spline = UnivariateSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 2], s=0.001)
-        self.cm_spline = UnivariateSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 3], s=0.0001)
+        # self.cl_spline = UnivariateSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 1], s=0.1)
+        # self.cd_spline = UnivariateSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 2], s=0.001)
+        # self.cm_spline = UnivariateSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 3], s=0.0001)
+        self.cl_spline = CubicSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 1])
+        self.cd_spline = CubicSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 2])
+        self.cm_spline = CubicSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 3])
 
         if plot_flag:
             plt.plot(self.afoil_polar[:, 0], self.afoil_polar[:, 1], '-')
+            # plt.plot(np.linspace(angles[0],angles[-1],100), self.cl_spline(np.linspace(angles[0],angles[-1],100)))
             plt.plot(self.afoil_polar[:, 0], self.afoil_polar[:, 2], '-')
             plt.plot(self.afoil_polar[:, 0], self.afoil_polar[:, 3], '-')
             plt.grid(True)
@@ -319,7 +462,7 @@ class LiftingSurface:
             drag_scalar = cd * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * self.dA.reshape(
                 cl.shape) / 1e6  # self.c / 1000
             moment_scalar = cm * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * self.dA.reshape(
-                cl.shape) / 1e6  # self.c / 1000
+                cl.shape) / 1e6  * self.c / 1000
 
             lift_norm = np.cross(self.a2, u_cp_norm)
             lift_xyz = lift_scalar * lift_norm
