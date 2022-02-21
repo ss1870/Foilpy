@@ -105,8 +105,8 @@ class FoilAssembly:
         # Me rider
         # rider_mass = 72 # kg
         # Guess rider CoG is roughly 900mm above feet and initially assume weight spread evenly between feet
-        rider_mass = 0 # 72
-        rider_cog = np.array([0, 0, 0]) # np.array([0, 385, 900])
+        rider_mass = 72 # 72
+        rider_cog = np.array([0, 385, 900]) # np.array([0, 385, 900])
 
         self.total_mass = self.mast0.mass + self.main_wing0.mass + self.stabiliser0.mass + fuselage_mass + board_mass + rider_mass
         cog = (self.mast0.mass*self.mast0.cog + self.main_wing0.mass*self.mast0.cog + self.stabiliser0.mass*self.mast0.cog + fuselage_mass*fuselage_cog + board_mass*board_cog + rider_mass*rider_cog)/self.total_mass

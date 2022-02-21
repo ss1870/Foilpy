@@ -69,21 +69,22 @@ for i in range(len(angle)):
     foil.rotate_foil_assembly([-angle[i], 0, 0])
 
 plt.plot(angle, mom, 'k-')
+plt.grid(True)
 plt.show()
 # foil.plot_foil_assembly()
 
 
 
 
-# xnode1 = np.concatenate([obj.node1.reshape(1, 1, -1) for obj in front_wing.BVs], axis=1)
-# xnode2 = np.concatenate([obj.node2.reshape(1, 1, -1) for obj in front_wing.BVs], axis=1)
-# gamma = np.array([obj.circ for obj in front_wing.BVs]).reshape(1, -1, 1)
-# l0 = np.array([obj.length0 for obj in front_wing.BVs]).reshape(1, -1, 1)
-#
-# xcp = front_wing.xcp
-#
-# V = eval_biot_savart(xcp, xnode1, xnode2, gamma, l0)
+xnode1 = np.concatenate([obj.node1.reshape(1, 1, -1) for obj in front_wing.BVs], axis=1)
+xnode2 = np.concatenate([obj.node2.reshape(1, 1, -1) for obj in front_wing.BVs], axis=1)
+gamma = np.array([obj.circ for obj in front_wing.BVs]).reshape(1, -1, 1)
+l0 = np.array([obj.length0 for obj in front_wing.BVs]).reshape(1, -1, 1)
 
+xcp = front_wing.xcp
+
+V = eval_biot_savart(xcp, xnode1, xnode2, gamma, l0)
+print(V.shape)
 
 # to-do:
 # - in LiftingSurface class: designate whether a BV is on the LL or not (vtype)

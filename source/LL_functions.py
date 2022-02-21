@@ -28,6 +28,26 @@ def eval_biot_savart(xcp, xnode1, xnode2, gamma, l0):
     return u_gamma
 
 
+def lift_from_circulation(rho, gamma, u_cp, dl, a1, a3):
+    cross_ucp_dl = np.cross(u_cp, dl)
+    L_gamma = rho * gamma * np.sqrt((np.dot(cross_ucp_dl, a1)) ** 2 + (np.dot(cross_ucp_dl, a3)) ** 2)
+    return L_gamma # should be size (n_seg,1)
+
+
+def LL_residual(gamma, rho, u_BV, u_FV, u_motion, dl, a1, a3, cl_spline, dA):
+
+    u_BV = np.sum(u_BV * gamma, axis=1)
+
+    u_cp = u_motion + u_BV + u_FV
+
+    L_gamma = lift_from_circulation(rho, gamma, u_cp, dl, a1, a3)
+
+    L_alpha = lift_from_strip_theory(rho, u_cp, a1, a3, cl_spline, dA)
+
+    R = L_alpha - L_gamma
+    return R
+
+
 def rotation_matrix(w, angle, deg=True):
     # w is the axis to rotate about, size (3,)
     # angle is the angle to rotate by in radian
