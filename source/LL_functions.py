@@ -28,22 +28,34 @@ def eval_biot_savart(xcp, xnode1, xnode2, gamma, l0):
     return u_gamma
 
 
-def lift_from_circulation(rho, gamma, u_cp, dl, a1, a3):
-    cross_ucp_dl = np.cross(u_cp, dl)
-    L_gamma = rho * gamma * np.sqrt((np.dot(cross_ucp_dl, a1)) ** 2 + (np.dot(cross_ucp_dl, a3)) ** 2)
-    return L_gamma # should be size (n_seg,1)
-
-
 def LL_residual(gamma, rho, u_BV, u_FV, u_motion, dl, a1, a3, cl_spline, dA):
+    # gamma:    (nseg,)
+    # u_BV:     (nseg, nseg*4, 3)
+    # u_motion: (3,)
+    # u_FV, dl, a1, a3, dA: (nseg, 3)
+    # cl_spline = callable object to compute lift coefficient
 
-    u_BV = np.sum(u_BV * gamma, axis=1)
+    # multiply gamma * velocity component due to bound vorticity
+    gamma1 = np.tile(gamma.reshape(1, -1, 1), (len(gamma), 4, 3))
+    u_BV = np.sum(u_BV * gamma1, axis=1)  # resulting size (nseg, 3)
 
-    u_cp = u_motion + u_BV + u_FV
+    # sum up all velocity components at the CPs
+    u_cp = u_motion.reshape(1, 3) + u_BV + u_FV  # (nseg, 3)
 
-    L_gamma = lift_from_circulation(rho, gamma, u_cp, dl, a1, a3)
+    # compute lift due to circulation
+    cross_ucp_dl = np.cross(u_cp, dl)
+    dot_a1 = np.sum(cross_ucp_dl * a1, axis=1)
+    dot_a3 = np.sum(cross_ucp_dl * a3, axis=1)
+    L_gamma = rho * gamma * np.sqrt(dot_a1 ** 2 + dot_a3 ** 2) # (nseg,)
 
-    L_alpha = lift_from_strip_theory(rho, u_cp, a1, a3, cl_spline, dA)
+    # compute lift due to strip theory
+    dot_ucp_a1 = np.sum(u_cp * a1, axis=1)
+    dot_ucp_a3 = np.sum(u_cp * a3, axis=1)
+    alpha_cp = np.arctan(dot_ucp_a3 / dot_ucp_a1)
+    cl = cl_spline.__call__(alpha_cp * 180 / np.pi)
+    L_alpha = cl * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * dA/ 1e6
 
+    # difference between two methods = residual
     R = L_alpha - L_gamma
     return R
 

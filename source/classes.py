@@ -427,6 +427,7 @@ class LiftingSurface:
         self.a1 = x6mx8 / x6mx8_norm
         self.a3 = x6mx8_cross_x10mx9 / np.linalg.norm(x6mx8_cross_x10mx9, axis=1).reshape(-1, 1)
         self.a2 = np.cross(self.a3, self.a1)
+        self.dl = x10mx9
 
         # Compute segment area, chord, and sum total area
         self.dA = np.linalg.norm(np.cross(x6mx8, x7 - x5), axis=1)
@@ -437,13 +438,12 @@ class LiftingSurface:
         nodes1 = np.vstack((x9, x10, x3, x2))
         # print(nodes1)
         nodes2 = np.vstack((x10, x3, x2, x9))
-        # BV order: All lifting-line BVs, RHS, TE, LHS (i.e. clockwise round the segment from above)
+        # BV order: LL, RHS, TE, LHS (i.e. clockwise round the segment from above)
         BVs = map(VortexLine, nodes1, nodes2)
         self.BVs = list(BVs)
 
     def LL_strip_theory_forces(self, u_motion, rho, full_output=True):
         u_cp = u_motion * np.ones((self.a1.shape[0], 1))
-        u_cp_norm = u_cp / np.linalg.norm(u_cp, axis=1, keepdims=True)
 
         dot_ucp_a1 = np.sum(u_cp * self.a1, axis=1, keepdims=True)
         dot_ucp_a3 = np.sum(u_cp * self.a3, axis=1, keepdims=True)
@@ -464,6 +464,7 @@ class LiftingSurface:
             moment_scalar = cm * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * self.dA.reshape(
                 cl.shape) / 1e6  * self.c / 1000
 
+            u_cp_norm = u_cp / np.linalg.norm(u_cp, axis=1, keepdims=True)
             lift_norm = np.cross(self.a2, u_cp_norm)
             lift_xyz = lift_scalar * lift_norm
             drag_xyz = drag_scalar * u_cp_norm

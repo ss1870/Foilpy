@@ -1,5 +1,5 @@
 from source.classes import LiftingSurface, FoilAssembly, ms2knts, knts2ms
-from source.LL_functions import eval_biot_savart
+from source.LL_functions import eval_biot_savart, LL_residual
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -68,9 +68,9 @@ for i in range(len(angle)):
     mom[i] = loads[3]
     foil.rotate_foil_assembly([-angle[i], 0, 0])
 
-plt.plot(angle, mom, 'k-')
-plt.grid(True)
-plt.show()
+# plt.plot(angle, mom, 'k-')
+# plt.grid(True)
+# plt.show()
 # foil.plot_foil_assembly()
 
 
@@ -78,13 +78,21 @@ plt.show()
 
 xnode1 = np.concatenate([obj.node1.reshape(1, 1, -1) for obj in front_wing.BVs], axis=1)
 xnode2 = np.concatenate([obj.node2.reshape(1, 1, -1) for obj in front_wing.BVs], axis=1)
-gamma = np.array([obj.circ for obj in front_wing.BVs]).reshape(1, -1, 1)
+# gamma = np.array([obj.circ for obj in front_wing.BVs]).reshape(1, -1, 1)
 l0 = np.array([obj.length0 for obj in front_wing.BVs]).reshape(1, -1, 1)
+gamma = np.ones(l0.shape)
 
 xcp = front_wing.xcp
 
-V = eval_biot_savart(xcp, xnode1, xnode2, gamma, l0)
-print(V.shape)
+u_BV = eval_biot_savart(xcp, xnode1, xnode2, gamma, l0)
+# print(u_BV.shape)
+
+
+gamma = np.random.randn(u_BV.shape[0])
+rho = 1025
+u_FV = np.zeros((1,3))
+R = LL_residual(gamma, rho, u_BV, u_FV, u_motion, front_wing.dl, front_wing.a1, front_wing.a3, front_wing.cl_spline, front_wing.dA)
+print(R)
 
 # to-do:
 # - in LiftingSurface class: designate whether a BV is on the LL or not (vtype)
