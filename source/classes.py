@@ -6,25 +6,30 @@ from scipy.interpolate import interp1d, UnivariateSpline, CubicSpline
 import math
 from source.AeroPy.aeropy.xfoil_module import find_coefficients
 from source.LL_functions import rotation_matrix, translation_matrix, apply_rotation
+import jax_cosmo as jc
 
 
 def ms2knts(velocity):
     return velocity * 1.943844
 
-
 def knts2ms(velocity):
     return velocity / 1.943844
 
+def unit_2_meters(val, unit):
+    if unit=='mm':
+        return val/1000
+    elif unit == 'cm':
+        return val/100
 
 class FoilAssembly:
 
     def __init__(self, main_wing0, stabiliser0, mast0, fuselage_length, mast_attachment_ratio, wing_angle=0,
-                 stabiliser_angle=0):
+                 stabiliser_angle=0, units='mm'):
         self.main_wing0 = main_wing0
         self.stabiliser0 = stabiliser0
         self.mast0 = mast0
-        self.fuselage_length = fuselage_length
-        self.mast_attachment_ratio = mast_attachment_ratio
+        self.fuselage_length = unit_2_meters(fuselage_length, units)
+        self.mast_attachment_ratio = unit_2_meters(mast_attachment_ratio, units)
         self.wing_angle = wing_angle
         self.stabiliser_angle = stabiliser_angle
         self.foil_angle = 0
@@ -46,16 +51,16 @@ class FoilAssembly:
         # print(np.sum(forces, axis=0))
 
         # Front wing: rotate by wing set angle, then translate z by mast span, and y positive by attachment ratio
-        R_front_wing = np.dot(translation_matrix([0, mast_attachment_ratio, -self.mast.span]),
-                              rotation_matrix([1, 0, 0], wing_angle))
+        R_front_wing = np.dot(translation_matrix([0, self.mast_attachment_ratio, -self.mast.span]),
+                              rotation_matrix([1, 0, 0], self.wing_angle))
         self.main_wing.rotate_component(R_front_wing)
         # self.main_wing.plot3D()
         # forces = self.main_wing.LL_strip_theory_forces(np.array([0, 5, 0]), 1025)
         # print("Main wing load vector = ", str(np.sum(forces, axis=0)), "\n")
 
         # Stabiliser: rotate by stab set angle, then translate z by mast span, and y negative by attachment ratio
-        R_stab = np.dot(translation_matrix([0, -(fuselage_length - mast_attachment_ratio), -self.mast.span]),
-                        rotation_matrix([1, 0, 0], stabiliser_angle))
+        R_stab = np.dot(translation_matrix([0, -(self.fuselage_length - self.mast_attachment_ratio), -self.mast.span]),
+                        rotation_matrix([1, 0, 0], self.stabiliser_angle))
         self.stabiliser.rotate_component(R_stab)
         # self.stabiliser.plot3D()
         # forces = self.stabiliser.LL_strip_theory_forces(np.array([0, 5, 0]), 1025)
@@ -78,7 +83,7 @@ class FoilAssembly:
         # mast_mass = 2.1kg # 75cm axis alu mast includes baseplate, doodad and bolts (https://www.standupzone.com/forum/index.php?topic=35177.810)
         # Works out as 2.8kg per meter
         # Therefore, 60cm mast (+doodad and baseplate) would weigh 1.68kg
-        self.mast0.mass = 2.8 * self.mast0.span/1000
+        self.mast0.mass = 2.8 * self.mast0.span
         self.mast0.cog = np.array([0, 0, -self.mast.span/2])
 
         # Front wing
@@ -93,20 +98,20 @@ class FoilAssembly:
         # fuselage_mass = 0.931 # short black
         # fuselage longitudinal CoG = 295mm from the front
         fuselage_mass = 0.931
-        fuselage_cog = np.array([0, -30, -self.mast.span])
+        fuselage_cog = np.array([0, -0.030, -self.mast.span])
 
         # North board
         # board_mass = 3.7 # kg
         # Board CoG is 400mm infront of centre of foil mounting point. Assuming this is (0,0) on the foil CS
         # Rider will stand with backfoot roughly above foil mounting point, and front foot roughly 670mm infront of this
         board_mass = 3.7
-        board_cog = np.array([0, 400, 15])
+        board_cog = np.array([0, 0.400, 0.015])
 
         # Me rider
         # rider_mass = 72 # kg
         # Guess rider CoG is roughly 900mm above feet and initially assume weight spread evenly between feet
         rider_mass = 72 # 72
-        rider_cog = np.array([0, 385, 900]) # np.array([0, 385, 900])
+        rider_cog = np.array([0, 0.385, 0.900]) # np.array([0, 385, 900])
 
         self.total_mass = self.mast0.mass + self.main_wing0.mass + self.stabiliser0.mass + fuselage_mass + board_mass + rider_mass
         cog = (self.mast0.mass*self.mast0.cog + self.main_wing0.mass*self.mast0.cog + self.stabiliser0.mass*self.mast0.cog + fuselage_mass*fuselage_cog + board_mass*board_cog + rider_mass*rider_cog)/self.total_mass
@@ -149,29 +154,56 @@ class FoilAssembly:
         stab_wing_load = self.stabiliser.LL_strip_theory_forces(u_motion, rho)
         mast_load = self.mast.LL_strip_theory_forces(u_motion, rho)
 
-        total_load = main_wing_load + stab_wing_load + mast_load
+        total_load = np.sum(main_wing_load, axis=0) + np.sum(stab_wing_load, axis=0) + np.sum(mast_load, axis=0)
 
-        main_wing_moment = np.cross((self.main_wing.xcp-self.cog.reshape(-1,3))/1e3, main_wing_load[:,0:3])
-        stab_wing_moment = np.cross((self.stabiliser.xcp-self.cog.reshape(-1,3))/1e3, stab_wing_load[:,0:3])
-        mast_moment = np.cross((self.mast.xcp - self.cog.reshape(-1, 3))/1e3, mast_load[:, 0:3])
+        main_wing_moment = np.cross((self.main_wing.xcp-self.cog.reshape(-1,3)), main_wing_load[:,0:3])
+        stab_wing_moment = np.cross((self.stabiliser.xcp-self.cog.reshape(-1,3)), stab_wing_load[:,0:3])
+        mast_moment = np.cross((self.mast.xcp - self.cog.reshape(-1, 3)), mast_load[:, 0:3])
 
         total_load[:, 3:] = total_load[:, 3:] + main_wing_moment + stab_wing_moment + mast_moment
         return total_load
 
+    def surface2dict(self):
+        fw = {"xcp": self.main_wing.xcp, 
+              "dl": self.main_wing.dl, 
+              "a1": self.main_wing.a1, 
+              "a3": self.main_wing.a3, 
+              "dA": self.main_wing.dA, 
+              "dl": self.main_wing.dl,
+              "cl_spl": self.main_wing.cl_spline,
+              "xnode1": np.concatenate([obj.node1.reshape(1, 1, -1) for obj in self.main_wing.BVs], axis=1), # (1, nseg*4, 3)
+              "xnode2": np.concatenate([obj.node2.reshape(1, 1, -1) for obj in self.main_wing.BVs], axis=1),
+              "l0": np.array([obj.length0 for obj in self.main_wing.BVs])} 
+        
+        stab = {"xcp": self.stabiliser.xcp, 
+                "dl": self.stabiliser.dl, 
+                "a1": self.stabiliser.a1, 
+                "a3": self.stabiliser.a3, 
+                "dA": self.stabiliser.dA, 
+                "dl": self.stabiliser.dl,
+                "cl_spl": self.stabiliser.cl_spline,
+                "xnode1": np.concatenate([obj.node1.reshape(1, 1, -1) for obj in self.stabiliser.BVs], axis=1), # (1, nseg*4, 3)
+                "xnode2": np.concatenate([obj.node2.reshape(1, 1, -1) for obj in self.stabiliser.BVs], axis=1),
+                "l0": np.array([obj.length0 for obj in self.stabiliser.BVs])}
+        dict = [fw, stab]
+        return dict
+
+
 class LiftingSurface:
 
     def __init__(self, rt_chord, tip_chord, span, Re, sweep_tip=0, sweep_curv=0, dih_tip=0, dih_curve=0,
-                 afoil_name='naca0012', type='wing'):
+                 afoil_name='naca0012', type='wing', nsegs=50, units='mm'):
 
-        self.rt_chord = rt_chord
-        self.tip_chord = tip_chord
-        self.span = span
-        self.sweep_tip = sweep_tip
+        self.rt_chord = unit_2_meters(rt_chord, units)
+        self.tip_chord = unit_2_meters(tip_chord, units)
+        self.span = unit_2_meters(span, units)
+        self.sweep_tip = unit_2_meters(sweep_tip, units)
         self.sweep_curv = sweep_curv
-        self.dih_tip = dih_tip
+        self.dih_tip = unit_2_meters(dih_tip, units)
         self.dih_curve = dih_curve
         self.type = type
         self.afoil_name = afoil_name
+        self.nsegs = nsegs
         self.a3 = None
         self.a2 = None
         self.a1 = None
@@ -182,6 +214,7 @@ class LiftingSurface:
         self.LE = None
         self.polar_re = None
         self.polar = None
+        
 
         self.generate_coords(npts=101)
         self.define_aerofoil(afoil_name, False)
@@ -192,7 +225,7 @@ class LiftingSurface:
         # print("Trapz front wing area =", str(front_wing.calc_trapz_proj_wing_area()))
         # print("Front wing aspect ratio =", str(front_wing.calc_AR()))
         # print("Front wing lift =", str(front_wing.calc_lift(V=5, aoa=0, rho=1025)), "Newtons")
-        self.generate_LL_geom(50)
+        self.generate_LL_geom(nsegs, genBVs=True)
         # print("Lifting line front wing area =", str(front_wing.LL_seg_area))
 
     def generate_coords(self, npts=1001):
@@ -273,7 +306,10 @@ class LiftingSurface:
         self.ref_axis = apply_rotation(R, self.ref_axis, 1)
         self.qu_chord_loc = apply_rotation(R, self.qu_chord_loc, 1)
         self.xcp = apply_rotation(R, self.xcp, 1)
-
+        for i in range(len(self.BVs)):
+            self.BVs[i].node1 = apply_rotation(R, self.BVs[i].node1, -1)
+            self.BVs[i].node2 = apply_rotation(R, self.BVs[i].node2, -1)
+            
         R_rotate_only = deepcopy(R)
         R_rotate_only[0:3, -1] = 0
         self.a1 = apply_rotation(R_rotate_only, self.a1, 1)
@@ -350,9 +386,11 @@ class LiftingSurface:
         # self.cl_spline = UnivariateSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 1], s=0.1)
         # self.cd_spline = UnivariateSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 2], s=0.001)
         # self.cm_spline = UnivariateSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 3], s=0.0001)
-        self.cl_spline = CubicSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 1])
+        self.cl_spline1 = CubicSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 1])
         self.cd_spline = CubicSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 2])
         self.cm_spline = CubicSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 3])
+
+        self.cl_spline = jc.scipy.interpolate.InterpolatedUnivariateSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 1])
 
         if plot_flag:
             plt.plot(self.afoil_polar[:, 0], self.afoil_polar[:, 1], '-')
@@ -368,8 +406,8 @@ class LiftingSurface:
     def calc_lift(self, V, aoa, rho):
         LE_elmt_ctr = (self.LE[0:-1, :] + self.LE[1:, :]) / 2
         TE_elmt_ctr = (self.TE[0:-1, :] + self.TE[1:, :]) / 2
-        chord_elmt_ctr = np.linalg.norm(LE_elmt_ctr - TE_elmt_ctr, axis=1) / 1000
-        dX = (self.LE[1:, 0] - self.LE[0:-1, 0]) / 1000
+        chord_elmt_ctr = np.linalg.norm(LE_elmt_ctr - TE_elmt_ctr, axis=1)
+        dX = (self.LE[1:, 0] - self.LE[0:-1, 0])
 
         cl = self.cl_spline.__call__(aoa)
         # Simple flat plate lift coefficient 2*pi*aoa
@@ -386,10 +424,10 @@ class LiftingSurface:
         # Integrate lift w.r.t length
         # Note this is overly simplistic as it assumes lift from all strips acts perpendicular to the flow
         # This is not true for wings with dihedral/twist
-        L = np.trapz(dL_nodes, self.LE[:, 0] / 1000)
+        L = np.trapz(dL_nodes, self.LE[:, 0])
         return L
 
-    def generate_LL_geom(self, n_segs):
+    def generate_LL_geom(self, n_segs, genBVs=False):
         # Employ cosine spacing for LL
         theta_ends = np.linspace(-math.pi / 2, math.pi / 2, n_segs + 1)
         seg_spacing = np.sin(theta_ends)
@@ -430,42 +468,42 @@ class LiftingSurface:
         self.dl = x10mx9
 
         # Compute segment area, chord, and sum total area
-        self.dA = np.linalg.norm(np.cross(x6mx8, x7 - x5), axis=1)
+        self.dA = np.linalg.norm(np.cross(x6mx8, x7 - x5), axis=1).reshape(-1,1)
         self.c = x6mx8_norm
         self.LL_seg_area = np.sum(self.dA)
 
-        # Generate bound vorticity for this wing
-        nodes1 = np.vstack((x9, x10, x3, x2))
-        # print(nodes1)
-        nodes2 = np.vstack((x10, x3, x2, x9))
-        # BV order: LL, RHS, TE, LHS (i.e. clockwise round the segment from above)
-        BVs = map(VortexLine, nodes1, nodes2)
-        self.BVs = list(BVs)
+        if genBVs:
+            # Generate bound vorticity for this wing
+            nodes1 = np.vstack((x9, x10, x3, x2))
+            # print(nodes1)
+            nodes2 = np.vstack((x10, x3, x2, x9))
+            # BV order: LL, RHS, TE, LHS (i.e. clockwise round the segment from above)
+            BVs = map(VortexLine, nodes1, nodes2)
+            self.BVs = list(BVs)
 
     def LL_strip_theory_forces(self, u_motion, rho, full_output=True):
         u_cp = u_motion * np.ones((self.a1.shape[0], 1))
 
         dot_ucp_a1 = np.sum(u_cp * self.a1, axis=1, keepdims=True)
         dot_ucp_a3 = np.sum(u_cp * self.a3, axis=1, keepdims=True)
-        alpha_cp = np.arctan(dot_ucp_a3 / dot_ucp_a1)
+        alpha_cp = np.arctan2(dot_ucp_a3, dot_ucp_a1)
 
-        cl = self.cl_spline.__call__(alpha_cp * 180 / np.pi)
+        cl = self.cl_spline1.__call__(alpha_cp * 180 / np.pi)
 
         if full_output == False:
-            lift_scalar = cl * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * self.dA.reshape(cl.shape) / 1e6
+            lift_scalar = cl * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * self.dA
             return lift_scalar
         else:
             cd = self.cd_spline.__call__(alpha_cp * 180 / np.pi)
             cm = self.cm_spline.__call__(alpha_cp * 180 / np.pi)
-            lift_scalar = cl * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * self.dA.reshape(
-                cl.shape) / 1e6  # self.c / 1000
-            drag_scalar = cd * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * self.dA.reshape(
-                cl.shape) / 1e6  # self.c / 1000
-            moment_scalar = cm * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * self.dA.reshape(
-                cl.shape) / 1e6  * self.c / 1000
+            lift_scalar = cl * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * self.dA
+            drag_scalar = cd * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * self.dA
+            moment_scalar = cm * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * self.dA
 
             u_cp_norm = u_cp / np.linalg.norm(u_cp, axis=1, keepdims=True)
             lift_norm = np.cross(self.a2, u_cp_norm)
+            cross_ucp_dl = np.cross(u_cp_norm, self.dl)
+            lift_norm = cross_ucp_dl/np.linalg.norm(cross_ucp_dl,axis=1,keepdims=True)
             lift_xyz = lift_scalar * lift_norm
             drag_xyz = drag_scalar * u_cp_norm
             moment_xyz = moment_scalar * self.a2
