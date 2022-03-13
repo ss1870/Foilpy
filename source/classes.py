@@ -170,9 +170,11 @@ class FoilAssembly:
               "a3": self.main_wing.a3, 
               "dA": self.main_wing.dA, 
               "dl": self.main_wing.dl,
-              "cl_spl": self.main_wing.cl_spline,
+            #   "cl_spl": self.main_wing.cl_spline,
+              "cl_tab": self.main_wing.cl_tab,
               "xnode1": np.concatenate([obj.node1.reshape(1, 1, -1) for obj in self.main_wing.BVs], axis=1), # (1, nseg*4, 3)
               "xnode2": np.concatenate([obj.node2.reshape(1, 1, -1) for obj in self.main_wing.BVs], axis=1),
+              "TE": self.main_wing.TEv, 
               "l0": np.array([obj.length0 for obj in self.main_wing.BVs])} 
         
         stab = {"xcp": self.stabiliser.xcp, 
@@ -181,9 +183,11 @@ class FoilAssembly:
                 "a3": self.stabiliser.a3, 
                 "dA": self.stabiliser.dA, 
                 "dl": self.stabiliser.dl,
-                "cl_spl": self.stabiliser.cl_spline,
+                # "cl_spl": self.stabiliser.cl_spline,
+                "cl_tab": self.stabiliser.cl_tab,
                 "xnode1": np.concatenate([obj.node1.reshape(1, 1, -1) for obj in self.stabiliser.BVs], axis=1), # (1, nseg*4, 3)
                 "xnode2": np.concatenate([obj.node2.reshape(1, 1, -1) for obj in self.stabiliser.BVs], axis=1),
+                "TE": self.stabiliser.TEv, 
                 "l0": np.array([obj.length0 for obj in self.stabiliser.BVs])}
         dict = [fw, stab]
         return dict
@@ -391,6 +395,7 @@ class LiftingSurface:
         self.cm_spline = CubicSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 3])
 
         self.cl_spline = jc.scipy.interpolate.InterpolatedUnivariateSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 1])
+        self.cl_tab = np.hstack((self.afoil_polar[:,0].reshape(-1,1), self.afoil_polar[:,1].reshape(-1,1)))
 
         if plot_flag:
             plt.plot(self.afoil_polar[:, 0], self.afoil_polar[:, 1], '-')
@@ -440,9 +445,11 @@ class LiftingSurface:
         LE_f = interp1d(x_in, self.LE, axis=0)
         LE_nodes = LE_f(seg_spacing)
         LE_CPs = LE_f(seg_spacingCP)
+        self.LEv = LE_nodes
         TE_f = interp1d(x_in, self.TE, axis=0)
         TE_nodes = TE_f(seg_spacing)
         TE_CPs = TE_f(seg_spacingCP)
+        self.TEv = TE_nodes
 
         # Define segment geometry points
         x1 = LE_nodes[0:-1, :]

@@ -71,10 +71,10 @@ lifting_surfaces = foil.surface2dict()
 rho = 1025
 # foil.plot_foil_assembly()
 # print(np.sum(foil.compute_foil_loads(-u_motion, 1025), axis=0))
-steady_LL_solve(lifting_surfaces, -u_motion, rho, nit=1)
-a = jit(steady_LL_solve)
-out = a(lifting_surfaces, -u_motion, rho, nit=1)
-print(out)
+steady_LL_solve(lifting_surfaces, -u_motion, rho, dt=0.1, nit=2)
+# a = jit(steady_LL_solve)
+# out, out1 = a(lifting_surfaces, -u_motion, rho, nit=1)
+# print(out, out1)
 # foil.rotate_foil_assembly([1, 0, 0])
 # print(np.sum(foil.compute_foil_loads(u_motion, 1025), axis=0))
 # foil.rotate_foil_assembly([-1, 0, 0])
@@ -111,12 +111,12 @@ print(out)
 
 
 # u_FV = jnp.zeros((1,3))
-# # R = LL_residual(gamma_ini, rho, u_BV, u_FV, u_motion, foil.main_wing.dl, foil.main_wing.a1, foil.main_wing.a3, foil.main_wing.cl_spline, foil.main_wing.dA)
-# f = lambda gamma: LL_residual(gamma, rho, u_BV, u_FV, -u_motion, foil.main_wing.dl, foil.main_wing.a1, foil.main_wing.a3, foil.main_wing.cl_spline, foil.main_wing.dA)
+# # R = LL_residual(gamma_ini, rho, u_BV, u_FV, u_motion, foil.main_wing.dl, foil.main_wing.a1, foil.main_wing.a3, foil.main_wing.cl_tab, foil.main_wing.dA)
+# f = lambda gamma: LL_residual(gamma, rho, u_BV, u_FV, -u_motion, foil.main_wing.dl, foil.main_wing.a1, foil.main_wing.a3, [foil.main_wing.cl_tab], foil.main_wing.dA, [50])
 # # # J = jacfwd(f)(gamma_ini)
 
-# gamma_ini = ini_estimate_gamma(-u_motion, foil.main_wing.dl, foil.main_wing.a1, foil.main_wing.a3, foil.main_wing.cl_spline, foil.main_wing.dA, rho)
-# gamma_root, step_hist, f_hist = newton_raphson_solver(f, jacfwd(f), gamma_ini, nit=100, tol=1e-5)
+# gamma_ini = ini_estimate_gamma(-u_motion, foil.main_wing.dl, foil.main_wing.a1, foil.main_wing.a3, foil.main_wing.cl_tab, foil.main_wing.dA, rho)
+# gamma_root, step_hist, f_hist = newton_raphson_solver(f, jacfwd(f), gamma_ini, nit=100, tol=1e-4)
 # # print(np.sum(u_BV,axis=1))
 # # print(gamma_root.reshape(-1,1)*np.sum(u_BV,axis=1))
 # print(gamma_root)
@@ -135,9 +135,6 @@ print(out)
 # - in LiftingSurface class: designate whether a BV is on the LL or not (vtype)
 # - write test to check auto diff of residual is working
 # - Work out structure of full LL + wake solver
-    # - maybe first try get what I currently have working, i.e. BS for BVs of 1 surface and a calc circulation, JIT'ed within the steady solver function?
-        # - need to make LL_residual work for multiple lifting surfaces
-    # - Get circulation solver working for multiple lifting surfaces
     # - include wake generation and convection
     # - ensure u_flow and u_motion are differentiated/implemented correctly
     # - ensure all length units are in meters, this is the convention
