@@ -1,4 +1,5 @@
 from functools import partial, partialmethod
+from re import U
 import numpy as np1
 import jax.numpy as np
 from jax import jit, jacfwd, lax
@@ -21,7 +22,7 @@ def numerical_jacobian(f, x, h=1e-4):
     return J
 
 # @jit(nopython=True)
-def eval_biot_savart(xcp0, xnode1, xnode2, gamma, l0):
+def eval_biot_savart(xcp0, xnode1, xnode2, gamma, l0, delta_visc=0.025):
     # xcp: (ncp, 3)
     # xnode1, xnode2: (1, nvor, 3)
     # gamma, l0: (nvor,)
@@ -43,8 +44,10 @@ def eval_biot_savart(xcp0, xnode1, xnode2, gamma, l0):
     r1r2 = r1_norm * r2_norm
 
     numer = gamma.reshape(1,-1,1) * (r1_norm + r2_norm) * cross_r1r2
-    denom = 4 * math.pi * r1r2 * (r1r2 + dotr1r2) + (0.025 * l0.reshape(1,-1,1)) ** 2
+    denom = 4 * math.pi * (r1r2 * (r1r2 + dotr1r2) + (delta_visc * l0.reshape(1,-1,1)) ** 2)
     u_gamma = numer / denom
+    mask = np.isnan(u_gamma) | np.isinf(u_gamma)
+    u_gamma = u_gamma.at[mask].set(0)
 
     return u_gamma
 
@@ -138,8 +141,8 @@ def newton_raphson_solver(f, J, x0, nit=1000, tol=1e-7, display=True):
 
     if display:
         print("Newton-raphson solver finished in ", str(i), " iterations.")
-        if step_norm < tol:
-            print("Converged due to step-norm being less than tolerance: ", str(tol))
+        if R_norm < tol:
+            print("Converged due to R-norm being less than tolerance: ", str(tol))
         else:
             print("Converged due to reaching max number of iterations: ", str(nit))
         return x, step_norm_save[0:i], R_norm_save[0:i]
@@ -155,11 +158,9 @@ def newton_raphson4jit(f, J, x0, tol=1e-4):
     x = lax.while_loop(cond_fun, body_fun, init_val)
     return x
 
-def steady_LL_solve(lifting_surfaces, u_flow, rho, dt = 0.1, shed_elements_flag = True, nit=10):
+def steady_LL_solve(lifting_surfaces, u_flow, rho, dt = 0.1, shed_elements_flag = True, nit=10, delta_visc=0.025, wake_from_TE_frac=0.25):
     # lifting surfaces = list of dictionaries. Each dictionary contains the BV locations, unit vectors etc
     
-    wake_from_TE_frac = 0.25
-
     # unpack lifting surface dictionaries
     n_surf = len(lifting_surfaces)
     for i in range(n_surf):
@@ -212,18 +213,21 @@ def steady_LL_solve(lifting_surfaces, u_flow, rho, dt = 0.1, shed_elements_flag 
     # if shed_elements_flag==True:
         # n_elmts_layer1 = 4*
         # n_elmts_per_layer = 
+    # wake_elmt_table: [xnode1 (nelmts, 3), xnode2 (nelmts, 3), gamma (nelmts,), l0 (nelmts,)]
     wake_elmt_table = np1.zeros((n_wake_elmts, 8))
-
+    convectable_elmts_all = -np1.ones((n_wake_elmts, 2), np1.int8)
+    elmtIDs_all = -np1.ones((n_wake_elmts, 3), np1.int64)
     nFVs = 0
-
+    gamma_BVs = gamma_ini
+    gamma_BV_step = np1.zeros((nit))
     # do the quasi-time loop
     for t in range(nit):
         # eval biot-savart at CPs due to bound vorticity
-        u_BV = eval_biot_savart(xcp, xnode1, xnode2, np.ones((l0.shape)), l0)
+        u_BV = eval_biot_savart(xcp, xnode1, xnode2, np.ones((l0.shape)), l0, delta_visc=delta_visc)
         # eval biot-savart at CPs due to free wake vorticity
         u_FV = np.zeros((1,3))
-        if t > 0:
-            u_FV = eval_biot_savart(xcp, wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6], wake_elmt_table[0:nFVs, 6], wake_elmt_table[0:nFVs, 7])        
+        if nFVs > 0:
+            u_FV = eval_biot_savart(xcp, wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6], wake_elmt_table[0:nFVs, 6], wake_elmt_table[0:nFVs, 7], delta_visc=delta_visc)        
             u_FV = np.sum(u_FV, axis=1)
 
         # calc circulation at lifting surfaces
@@ -232,53 +236,62 @@ def steady_LL_solve(lifting_surfaces, u_flow, rho, dt = 0.1, shed_elements_flag 
         J = jacfwd(R) # declare jacobian of residual
 
         # compute circulation
-        # gamma_BVs1 = newton_raphson_solver(R, J, gamma_ini, nit=100, tol=1e-4, display=True)
-        gamma_BVs = newton_raphson4jit(R, J, gamma_ini, tol=1e-4)
+        gamma_BVs_prev = gamma_BVs
+        gamma_BVs, step, R = newton_raphson_solver(R, J, gamma_BVs, nit=100, tol=1e-4, display=True)
+        gamma_BV_step[t] = np.sqrt(np.sum((gamma_BVs - gamma_BVs_prev) ** 2))
+        # gamma_BVs = newton_raphson4jit(R, J, gamma_ini, tol=1e-4)
         gamma_elmt = np.empty((0))
         for i in range(n_surf):
             gamma_elmt = np.concatenate((gamma_elmt, np.tile(gamma_BVs[n_seg[0]*i:n_seg[0]*(i+1)], (4))))
 
 
         # convect/update wake
-        if t > 0:
+        if nFVs > 0:
             # calc velocities at wake nodes due to u_gamma and u_flow
             # get unique wake nodes
             # unique_wake_nodes = np.unique(np.vstack((wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6])), axis=0)
             # # compute induced velocity at wake nodes due to free vorticity
-            # u_wake_FV = eval_biot_savart(unique_wake_nodes, wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6], wake_elmt_table[0:nFVs, 6], wake_elmt_table[0:nFVs, 7])
+            # u_wake_FV = eval_biot_savart(unique_wake_nodes, wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6], wake_elmt_table[0:nFVs, 6], wake_elmt_table[0:nFVs, 7], delta_visc)
             # u_wake_FV = np.sum(u_wake_FV, axis=1)
             # # compute induced velocity at wake nodes due to bound vorticity
-            # u_wake_BV = eval_biot_savart(unique_wake_nodes, xnode1, xnode2, gamma_elmt, l0)
+            # u_wake_BV = eval_biot_savart(unique_wake_nodes, xnode1, xnode2, gamma_elmt, l0, delta_visc)
             # u_wake_BV = np.sum(u_wake_BV, axis=1)
 
-            # # convect wake nodes 
-            # conv_wake_nodes = unique_wake_nodes + (u_wake_FV + u_wake_BV)*dt
-            wake_elmt_table[0:nFVs, 0:6] = wake_elmt_table[0:nFVs, 0:6] + np.tile(u_flow, (1, 2))*dt
+            u_convect = u_flow # + u_wake_FV + u_wake_BV
+
+            # convect wake nodes 
+            # convect node 1's
+            mask = convectable_elmts_all[:,0]==1
+            wake_elmt_table[mask, 0:3] = wake_elmt_table[mask, 0:3] + u_convect*dt
+            # convext node 2's
+            mask = convectable_elmts_all[:,1]==1
+            wake_elmt_table[mask, 3:6] = wake_elmt_table[mask, 3:6] + u_convect*dt
+
+            # convect TE nodes to fractionally convected TE
+            # convect node 1's
+            mask = convectable_elmts_all[:,0]==0
+            wake_elmt_table[mask, 0:3] = wake_elmt_table[mask, 0:3] + wake_from_TE_frac * u_flow * dt
+            convectable_elmts_all[mask,0] = 1 # update these nodes are now convectable
+            # convect node 2's
+            mask = convectable_elmts_all[:,1]==0
+            wake_elmt_table[mask, 3:6] = wake_elmt_table[mask, 3:6] + wake_from_TE_frac * u_flow * dt
+            convectable_elmts_all[mask,1] = 1 # update these nodes are now convectable
+
 
         # add new wake elements - add elmt connectivity, node locations, and gamma
         # include option to ignore shed elements?
-        nodes1 = np.empty((0,3))
-        nodes2 = np.empty((0,3))
-        gamma_elmt = np.empty((0,1))
-        for i in range(n_surf):
-            TE_nodes = TE[i]
-            first_shed_nodes = TE[i] + wake_from_TE_frac * u_flow * dt
-            if t == 0:
-                nodes1 = np.vstack((nodes1, TE_nodes[0:-1], TE_nodes[1:], first_shed_nodes[1:], first_shed_nodes[0:-1])) # front, RHS, rear, LHS
-                nodes2 = np.vstack((nodes2, TE_nodes[1:], first_shed_nodes[1:], first_shed_nodes[0:-1], TE_nodes[0:-1])) # front, RHS, rear, LHS
-                gamma_elmt = np.vstack((gamma_elmt, np.tile(gamma_BVs[n_seg[0]*i:n_seg[0]*(i+1)].reshape(-1, 1), (4, 1))))
-                n_new_FVs = nFVs + n_elmts_layer1
-            else:
-                nodes1 = np.vstack((nodes1, TE_nodes[0:-1], TE_nodes[1:], first_shed_nodes[0:-1])) # front, RHS, LHS
-                nodes2 = np.vstack((nodes2, TE_nodes[1:], first_shed_nodes[1:], TE_nodes[0:-1])) # front, RHS, LHS
-                gamma_elmt = np.vstack((gamma_elmt, np.tile(gamma_BVs[n_seg[0]*i:n_seg[0]*(i+1)].reshape(-1, 1), (3, 1))))
-                n_new_FVs = nFVs + n_elmts_all_other_layers
-        wake_elmt_table[nFVs:n_new_FVs,0:7] = np.hstack((nodes1, nodes2, gamma_elmt))
-        nFVs = nFVs + n_new_FVs
+        near_wake_elmts, convectable_elmts, elmtIDs, n_FVs_new = add_wake_elmts(n_surf, TE, wake_from_TE_frac, u_flow, dt, gamma_BVs, n_seg, nFVs, t)
+        wake_elmt_table[nFVs:n_FVs_new, 0:7] = near_wake_elmts
+        convectable_elmts_all[nFVs:n_FVs_new, 0:2] = convectable_elmts
+        elmtIDs_all[nFVs:n_FVs_new, 0:3] = elmtIDs
+        nFVs = n_FVs_new
+        # upate gamma of previous layer (avoids creating duplicate elmts on same line)
+        if t > 0: # and include_shed_vorticity==True:
+            mask = (elmtIDs_all[:, 0] == t - 1) & (elmtIDs_all[:, 1] == 3)
+            wake_elmt_table[mask, 6] = wake_elmt_table[mask, 6] - gamma_BVs
 
         # update element lengths
         wake_elmt_table[0:nFVs, 7] = update_elmt_length(wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6]) 
-
 
     fig = plt.figure()
     ax = fig.gca(projection="3d")
@@ -287,8 +300,53 @@ def steady_LL_solve(lifting_surfaces, u_flow, rho, dt = 0.1, shed_elements_flag 
                 np.vstack((wake_elmt_table[0:nFVs, 2], wake_elmt_table[0:nFVs, 5])))
     plt.show()
 
-    # gamma = np.zeros((xcp.shape[0]))
-    return gamma_ini, gamma_BVs #np.sum(u_BV,axis=1) #, u_cp
+    u_BV = np.sum(eval_biot_savart(xcp, xnode1, xnode2, gamma_elmt, l0, delta_visc=delta_visc), axis=1)
+    u_FV = np.sum(eval_biot_savart(xcp, wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6], wake_elmt_table[0:nFVs, 6], wake_elmt_table[0:nFVs, 7], delta_visc=delta_visc), axis=1)     
+    u_cp = u_BV + u_FV
+
+    return u_cp, gamma_ini, gamma_BVs, wake_elmt_table 
+
+def add_wake_elmts(n_surf, TE, wake_from_TE_frac, u_flow, dt, gamma_BVs, n_seg, nFVs, t, include_shed_vorticity=True):
+    new_wake_elmts = np.empty((0,7))
+    convectable_elmts = np.empty((0,2))
+    elmtIDs = np.empty((0,3))
+    for i in range(n_surf):
+        TE_nodes = TE[i]
+        first_shed_nodes = TE[i] + wake_from_TE_frac * u_flow * dt
+        gamma_BVs_i = gamma_BVs[n_seg[i]*i:n_seg[i]*(i+1)]
+        gamma_trail = np1.zeros((n_seg[i]+1, 1))
+        gamma_trail[0:n_seg[i],0] = -gamma_BVs_i
+        gamma_trail[1:,0] = gamma_trail[1:,0] + gamma_BVs_i
+        shed_elmts = np.empty((0,7))
+        shed_elmts1 = np.empty((0,7))
+        if include_shed_vorticity:
+            if t==0:
+                # create n_seg shed elmts at frac_conv_TE
+                # only released on first time step, forms final line of wake elements in vortex lattice
+                shed_elmts1 = np.hstack((first_shed_nodes[1:,:], first_shed_nodes[0:-1,:], gamma_BVs_i.reshape(-1,1)))
+            # create n_seg shed elmts at TE
+            shed_elmts = np.hstack((TE_nodes[0:-1,:], TE_nodes[1:,:], gamma_BVs_i.reshape(-1,1)))
+
+        # create n_seg+1 trailing elements
+        trailing_elmts = np.hstack((TE_nodes, first_shed_nodes, gamma_trail))
+        
+        # assemble outputs: new_wake_elmts, convectable_elmts, elmtIDs
+        new_wake_elmts = np.vstack((new_wake_elmts, 
+                                    shed_elmts1,       # 1. only released on first time step
+                                    trailing_elmts,    # 2. trailing elements
+                                    shed_elmts))       # 3. shed elements at TE
+        convectable_elmts = np.vstack((convectable_elmts, 
+                                       np.ones((shed_elmts1.shape[0],2)),           # 1. shed elmts 1
+                                       np.array([[0,1]]*(trailing_elmts.shape[0])), # 2. trailing elements
+                                       np.zeros((shed_elmts.shape[0],2))))          # 3. shed elements at TE
+        elmtIDs = np.vstack((elmtIDs, 
+                             np.tile(np.array([[t, 1, i]]), (shed_elmts1.shape[0], 1)),       # 1. shed elmts 1
+                             np.tile(np.array([[t, 2, i]]), (trailing_elmts.shape[0], 1)),    # 2. trailing elements
+                             np.tile(np.array([[t, 3, i]]), (shed_elmts.shape[0], 1))))       # 3. shed elements at TE
+                                           
+    n_FVs_new = nFVs + new_wake_elmts.shape[0]
+    return new_wake_elmts, convectable_elmts, elmtIDs, n_FVs_new
+
 
 def update_elmt_length(nodes1, nodes2):
     length = np.sqrt(np.sum((nodes2-nodes1) ** 2, axis=1))

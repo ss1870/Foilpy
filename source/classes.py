@@ -20,6 +20,8 @@ def unit_2_meters(val, unit):
         return val/1000
     elif unit == 'cm':
         return val/100
+    elif unit == 'm':
+        return val
 
 class FoilAssembly:
 
@@ -149,10 +151,18 @@ class FoilAssembly:
             self.stabiliser.rotate_component(R_pitch)
             # self.cog = apply_rotation(R_pitch, self.cog, 0)
 
-    def compute_foil_loads(self, u_motion, rho):
-        main_wing_load = self.main_wing.LL_strip_theory_forces(u_motion, rho)
-        stab_wing_load = self.stabiliser.LL_strip_theory_forces(u_motion, rho)
-        mast_load = self.mast.LL_strip_theory_forces(u_motion, rho)
+    def compute_foil_loads(self, u_flow, rho, u_gamma=[]):
+
+        if u_gamma == []:
+            u_main_wing = u_flow
+            u_stab = u_flow
+        else:
+            u_main_wing = u_flow + u_gamma[0:self.main_wing.nsegs,:]
+            u_stab = u_flow + u_gamma[self.main_wing.nsegs:(self.main_wing.nsegs+self.stabiliser.nsegs),:]
+
+        main_wing_load = self.main_wing.LL_strip_theory_forces(u_main_wing, rho)
+        stab_wing_load = self.stabiliser.LL_strip_theory_forces(u_stab, rho)
+        mast_load = self.mast.LL_strip_theory_forces(u_flow, rho)
 
         total_load = np.sum(main_wing_load, axis=0) + np.sum(stab_wing_load, axis=0) + np.sum(mast_load, axis=0)
 
@@ -160,35 +170,38 @@ class FoilAssembly:
         stab_wing_moment = np.cross((self.stabiliser.xcp-self.cog.reshape(-1,3)), stab_wing_load[:,0:3])
         mast_moment = np.cross((self.mast.xcp - self.cog.reshape(-1, 3)), mast_load[:, 0:3])
 
-        total_load[:, 3:] = total_load[:, 3:] + main_wing_moment + stab_wing_moment + mast_moment
+        total_load[3:] = total_load[3:] + np.sum(main_wing_moment, axis=0)  + np.sum(stab_wing_moment, axis=0)  + np.sum(mast_moment, axis=0) 
         return total_load
 
     def surface2dict(self):
-        fw = {"xcp": self.main_wing.xcp, 
-              "dl": self.main_wing.dl, 
-              "a1": self.main_wing.a1, 
-              "a3": self.main_wing.a3, 
-              "dA": self.main_wing.dA, 
-              "dl": self.main_wing.dl,
-            #   "cl_spl": self.main_wing.cl_spline,
-              "cl_tab": self.main_wing.cl_tab,
-              "xnode1": np.concatenate([obj.node1.reshape(1, 1, -1) for obj in self.main_wing.BVs], axis=1), # (1, nseg*4, 3)
-              "xnode2": np.concatenate([obj.node2.reshape(1, 1, -1) for obj in self.main_wing.BVs], axis=1),
-              "TE": self.main_wing.TEv, 
-              "l0": np.array([obj.length0 for obj in self.main_wing.BVs])} 
+        fw = self.main_wing.create_dict()
         
-        stab = {"xcp": self.stabiliser.xcp, 
-                "dl": self.stabiliser.dl, 
-                "a1": self.stabiliser.a1, 
-                "a3": self.stabiliser.a3, 
-                "dA": self.stabiliser.dA, 
-                "dl": self.stabiliser.dl,
-                # "cl_spl": self.stabiliser.cl_spline,
-                "cl_tab": self.stabiliser.cl_tab,
-                "xnode1": np.concatenate([obj.node1.reshape(1, 1, -1) for obj in self.stabiliser.BVs], axis=1), # (1, nseg*4, 3)
-                "xnode2": np.concatenate([obj.node2.reshape(1, 1, -1) for obj in self.stabiliser.BVs], axis=1),
-                "TE": self.stabiliser.TEv, 
-                "l0": np.array([obj.length0 for obj in self.stabiliser.BVs])}
+        #  {"xcp": self.main_wing.xcp, 
+        #       "dl": self.main_wing.dl, 
+        #       "a1": self.main_wing.a1, 
+        #       "a3": self.main_wing.a3, 
+        #       "dA": self.main_wing.dA, 
+        #       "dl": self.main_wing.dl,
+        #     #   "cl_spl": self.main_wing.cl_spline,
+        #       "cl_tab": self.main_wing.cl_tab,
+        #       "xnode1": np.concatenate([obj.node1.reshape(1, 1, -1) for obj in self.main_wing.BVs], axis=1), # (1, nseg*4, 3)
+        #       "xnode2": np.concatenate([obj.node2.reshape(1, 1, -1) for obj in self.main_wing.BVs], axis=1),
+        #       "TE": self.main_wing.TEv, 
+        #       "l0": np.array([obj.length0 for obj in self.main_wing.BVs])} 
+        
+        stab = self.stabiliser.create_dict()
+        # {"xcp": self.stabiliser.xcp, 
+        #         "dl": self.stabiliser.dl, 
+        #         "a1": self.stabiliser.a1, 
+        #         "a3": self.stabiliser.a3, 
+        #         "dA": self.stabiliser.dA, 
+        #         "dl": self.stabiliser.dl,
+        #         # "cl_spl": self.stabiliser.cl_spline,
+        #         "cl_tab": self.stabiliser.cl_tab,
+        #         "xnode1": np.concatenate([obj.node1.reshape(1, 1, -1) for obj in self.stabiliser.BVs], axis=1), # (1, nseg*4, 3)
+        #         "xnode2": np.concatenate([obj.node2.reshape(1, 1, -1) for obj in self.stabiliser.BVs], axis=1),
+        #         "TE": self.stabiliser.TEv, 
+        #         "l0": np.array([obj.length0 for obj in self.stabiliser.BVs])}
         dict = [fw, stab]
         return dict
 
@@ -221,8 +234,9 @@ class LiftingSurface:
         
 
         self.generate_coords(npts=101)
-        self.define_aerofoil(afoil_name, False)
-        self.compute_afoil_polar(angles=np.linspace(-5, 15, 21), Re=Re, plot_flag=False)
+        if afoil_name != []:
+            self.define_aerofoil(afoil_name, False)
+            self.compute_afoil_polar(angles=np.linspace(-5, 15, 21), Re=Re, plot_flag=False)
         # # front_wing.plot2D()
         # # front_wing.plot3D()
         # print("Front wing area =", str(front_wing.calc_simple_proj_wing_area()))
@@ -310,6 +324,8 @@ class LiftingSurface:
         self.ref_axis = apply_rotation(R, self.ref_axis, 1)
         self.qu_chord_loc = apply_rotation(R, self.qu_chord_loc, 1)
         self.xcp = apply_rotation(R, self.xcp, 1)
+        self.TEv = apply_rotation(R, self.TEv, 1)
+        self.LEv = apply_rotation(R, self.LEv, 1)
         for i in range(len(self.BVs)):
             self.BVs[i].node1 = apply_rotation(R, self.BVs[i].node1, -1)
             self.BVs[i].node2 = apply_rotation(R, self.BVs[i].node2, -1)
@@ -489,7 +505,7 @@ class LiftingSurface:
             self.BVs = list(BVs)
 
     def LL_strip_theory_forces(self, u_motion, rho, full_output=True):
-        u_cp = u_motion * np.ones((self.a1.shape[0], 1))
+        u_cp = u_motion
 
         dot_ucp_a1 = np.sum(u_cp * self.a1, axis=1, keepdims=True)
         dot_ucp_a3 = np.sum(u_cp * self.a3, axis=1, keepdims=True)
@@ -505,11 +521,10 @@ class LiftingSurface:
             cm = self.cm_spline.__call__(alpha_cp * 180 / np.pi)
             lift_scalar = cl * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * self.dA
             drag_scalar = cd * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * self.dA
-            moment_scalar = cm * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * self.dA
+            moment_scalar = cm * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * self.dA * self.c
 
             u_cp_norm = u_cp / np.linalg.norm(u_cp, axis=1, keepdims=True)
-            lift_norm = np.cross(self.a2, u_cp_norm)
-            cross_ucp_dl = np.cross(u_cp_norm, self.dl)
+            cross_ucp_dl = np.cross(u_cp, self.dl)
             lift_norm = cross_ucp_dl/np.linalg.norm(cross_ucp_dl,axis=1,keepdims=True)
             lift_xyz = lift_scalar * lift_norm
             drag_xyz = drag_scalar * u_cp_norm
@@ -518,6 +533,65 @@ class LiftingSurface:
             force_xyz = lift_xyz + drag_xyz
             return np.hstack((force_xyz, moment_xyz))
 
+    def create_dict(self):
+        lifting_surface_dict = {"xcp": self.xcp, 
+                                "dl": self.dl, 
+                                "a1": self.a1, 
+                                "a3": self.a3, 
+                                "dA": self.dA, 
+                                "dl": self.dl,
+                                #   "cl_spl": self.main_wing.cl_spline,
+                                "cl_tab": self.cl_tab,
+                                "xnode1": np.concatenate([obj.node1.reshape(1, 1, -1) for obj in self.BVs], axis=1), # (1, nseg*4, 3)
+                                "xnode2": np.concatenate([obj.node2.reshape(1, 1, -1) for obj in self.BVs], axis=1),
+                                "TE": self.TEv, 
+                                "l0": np.array([obj.length0 for obj in self.BVs])} 
+        return lifting_surface_dict
+
+class EllipticalWing(LiftingSurface):
+    # This child class is used for verification of the lifting line model
+    def __init__(self, rt_chord, span, Re, sweep_tip=0, sweep_curv=0, dih_tip=0, dih_curve=0,
+                 afoil_name='naca0012', nsegs=50, units='mm'):
+
+        self.rt_chord = unit_2_meters(rt_chord, units)
+        self.span = unit_2_meters(span, units)
+        self.sweep_tip = unit_2_meters(sweep_tip, units)
+        self.sweep_curv = sweep_curv
+        self.dih_tip = unit_2_meters(dih_tip, units)
+        self.dih_curve = dih_curve
+        self.afoil_name = afoil_name
+        self.nsegs = nsegs
+        self.a3 = None
+        self.a2 = None
+        self.a1 = None
+        self.xcp = None
+        self.polar_re = None
+        self.polar = None
+        
+        npts = 10001
+        self.x = np.linspace(-self.span / 2, self.span / 2, npts).reshape(npts, 1)
+        self.ref_axis = np.hstack((self.x, np.zeros((npts, 2))))
+
+        self.chord_ini = rt_chord*np.sqrt(1 - (self.x / (span / 2)) ** 2)
+
+        self.LE = np.hstack((self.x,
+                             self.ref_axis[:, 1].reshape(npts, 1) + 0.25 * self.chord_ini,
+                             self.ref_axis[:, 2].reshape(npts, 1)))
+        self.TE = np.hstack((self.x,
+                             self.ref_axis[:, 1].reshape(npts, 1) - 0.75 * self.chord_ini,
+                             self.ref_axis[:, 2].reshape(npts, 1)))
+
+        self.qu_chord_loc = 0.75 * self.LE + 0.25 * self.TE
+
+        if afoil_name != []:
+            self.define_aerofoil(afoil_name, False)
+            self.compute_afoil_polar(angles=np.linspace(-5, 15, 21), Re=Re, plot_flag=False)
+
+        self.generate_LL_geom(nsegs, genBVs=True)
+
+    def define_flat_plate_polar(self):
+        self.cl_tab = np.stack((np.linspace(-20,20,100), np.linspace(-20,20,100)*np.pi/180*2*np.pi), axis=1)
+        self.cl_spline1 = CubicSpline(self.cl_tab[:, 0], self.cl_tab[:, 1])
 
 class VortexLine:
     vortex_elmtID = 0
