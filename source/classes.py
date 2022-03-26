@@ -335,6 +335,7 @@ class LiftingSurface:
         self.a1 = apply_rotation(R_rotate_only, self.a1, 1)
         self.a2 = apply_rotation(R_rotate_only, self.a2, 1)
         self.a3 = apply_rotation(R_rotate_only, self.a3, 1)
+        self.dl = apply_rotation(R_rotate_only, self.dl, 1)
 
     def calc_simple_proj_wing_area(self):
         area = 0.5 * (self.rt_chord + self.tip_chord) * self.span
@@ -468,17 +469,17 @@ class LiftingSurface:
         self.TEv = TE_nodes
 
         # Define segment geometry points
-        x1 = LE_nodes[0:-1, :]
-        x2 = TE_nodes[0:-1, :]
-        x3 = TE_nodes[1:, :]
-        x4 = LE_nodes[1:, :]
-        x5 = (x1 + x2) / 2
-        x7 = (x3 + x4) / 2
-        x6 = TE_CPs
-        x8 = LE_CPs
-        x9 = 0.75 * x1 + 0.25 * x2
-        x10 = 0.75 * x4 + 0.25 * x3
-        self.xcp = 0.75 * x8 + 0.25 * x6
+        x1 = LE_nodes[0:-1, :]              # LE left
+        x2 = TE_nodes[0:-1, :]              # TE left
+        x3 = TE_nodes[1:, :]                # TE right
+        x4 = LE_nodes[1:, :]                # LE right
+        x5 = (x1 + x2) / 2                  # mid-chord left
+        x7 = (x3 + x4) / 2                  # mid-chord right
+        x6 = TE_CPs                         # TE mid-seg (cp)
+        x8 = LE_CPs                         # LE mid-seg (cp)
+        x9 = 0.75 * x1 + 0.25 * x2          # qu-chord left
+        x10 = 0.75 * x4 + 0.25 * x3         # qu-chord right
+        self.xcp = 0.75 * x8 + 0.25 * x6    # qu-chord mid-seg
 
         # Define segment normal vectors
         x6mx8 = x6 - x8
@@ -497,10 +498,15 @@ class LiftingSurface:
 
         if genBVs:
             # Generate bound vorticity for this wing
-            nodes1 = np.vstack((x9, x10, x3, x2))
-            # print(nodes1)
-            nodes2 = np.vstack((x10, x3, x2, x9))
-            # BV order: LL, RHS, TE, LHS (i.e. clockwise round the segment from above)
+            # BV order: 
+            # - All four elements from 1st segment, then 2nd, then 3rd, etc...
+            # - LL, RHS, TE, LHS (i.e. clockwise round the segment, when looking from above)
+            nodes1 = np.zeros((n_segs*4, 3)) # np.vstack((x9, x10, x3, x2))
+            nodes2 = np.zeros((n_segs*4, 3)) # np.vstack((x10, x3, x2, x9))
+            for i in range(n_segs):
+                nodes1[4*i:4*(i+1),:] = np.vstack((x9[i,:], x10[i,:], x3[i,:], x2[i,:]))
+                nodes2[4*i:4*(i+1),:] = np.vstack((x10[i,:], x3[i,:], x2[i,:], x9[i,:]))
+
             BVs = map(VortexLine, nodes1, nodes2)
             self.BVs = list(BVs)
 
@@ -541,7 +547,9 @@ class LiftingSurface:
                                 "dA": self.dA, 
                                 "dl": self.dl,
                                 #   "cl_spl": self.main_wing.cl_spline,
-                                "cl_tab": self.cl_tab,
+                                # "cl_tab": self.cl_tab,
+                                "polar_alpha": self.cl_tab[:,0],
+                                "polar_cl": np.tile(self.cl_tab[:,1].reshape(-1,1), (1, len(self.dA))),
                                 "xnode1": np.concatenate([obj.node1.reshape(1, 1, -1) for obj in self.BVs], axis=1), # (1, nseg*4, 3)
                                 "xnode2": np.concatenate([obj.node2.reshape(1, 1, -1) for obj in self.BVs], axis=1),
                                 "TE": self.TEv, 

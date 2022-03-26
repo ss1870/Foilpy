@@ -7,9 +7,8 @@ import math
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from copy import deepcopy
-
-
 # from numba import jit
+
 
 def numerical_jacobian(f, x, h=1e-4):
     J = np1.zeros((len(x), len(x)))
@@ -21,7 +20,7 @@ def numerical_jacobian(f, x, h=1e-4):
         J[:,i] = (f(xph) - f(xmh))/2/h
     return J
 
-# @jit(nopython=True)
+
 def eval_biot_savart(xcp0, xnode1, xnode2, gamma, l0, delta_visc=0.025):
     # xcp: (ncp, 3)
     # xnode1, xnode2: (1, nvor, 3)
@@ -46,10 +45,10 @@ def eval_biot_savart(xcp0, xnode1, xnode2, gamma, l0, delta_visc=0.025):
     numer = gamma.reshape(1,-1,1) * (r1_norm + r2_norm) * cross_r1r2
     denom = 4 * math.pi * (r1r2 * (r1r2 + dotr1r2) + (delta_visc * l0.reshape(1,-1,1)) ** 2)
     u_gamma = numer / denom
-    mask = np.isnan(u_gamma) | np.isinf(u_gamma)
-    u_gamma = u_gamma.at[mask].set(0)
+
 
     return u_gamma
+
 
 def ini_estimate_gamma(u_cp, dl, a1, a3, cl_tab, dA, rho):
     # compute lift due to strip theory
@@ -57,7 +56,13 @@ def ini_estimate_gamma(u_cp, dl, a1, a3, cl_tab, dA, rho):
     dot_ucp_a3 = np.sum(u_cp * a3, axis=1)
     alpha_cp = np.arctan2(dot_ucp_a3, dot_ucp_a1)
     # cl = cl_spline.__call__(alpha_cp * 180.0 / np.pi)
-    cl = np.interp(alpha_cp * 180.0 / np.pi, cl_tab[:,0], cl_tab[:,1])
+    if np.all(np.diff(cl_tab[:,1:]) == 0):
+        cl = np.interp(alpha_cp * 180.0 / np.pi, cl_tab[:,0], cl_tab[:,1])
+    else:
+        cl = np1.zeros((a1.shape[0]))
+        for i in range(a1.shape[0]):
+            cl[i] = np.interp(alpha_cp[i] * 180.0 / np.pi, cl_tab[:,0], cl_tab[:,i+1])
+
     L_alpha = cl * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * np.squeeze(dA)
 
     # use equation for lift due to circulation to back calculate gamma
@@ -67,7 +72,8 @@ def ini_estimate_gamma(u_cp, dl, a1, a3, cl_tab, dA, rho):
     gamma = L_alpha/rho/np.sqrt(dot_a1 ** 2 + dot_a3 ** 2) 
     return gamma
 
-def LL_residual(gamma, rho, u_BV, u_FV, u_motion, dl, a1, a3, cl_tab, dA, nseg):
+
+def LL_residual(gamma, rho, u_BV, u_FV, u_motion, dl, a1, a3, cl_tab, dA):
     # gamma:    (nseg,)
     # u_BV:     (nseg, nseg*4, 3)
     # u_motion: (3,)
@@ -77,20 +83,12 @@ def LL_residual(gamma, rho, u_BV, u_FV, u_motion, dl, a1, a3, cl_tab, dA, nseg):
     # cl_tab: (nafoilpolar_pts, 2) lift polar/look-up table
     # nseg: list of number of segments in each lifting surface
 
-    n_surfaces = len(nseg)
-
     # tile and reshape gamma to be correct size for multiypling by u_BV
-    for i in range(n_surfaces):
-        if i==0:
-            # gamma1 = np.tile(gamma[nseg[i,0]:nseg[i,1]].reshape(1, -1, 1), (len(gamma), 4, 3))
-            gamma1 = np.tile(gamma[0:nseg[0]].reshape(1, -1, 1), (len(gamma), 4, 3))
-        else:
-            # tiled_gamma = np.tile(gamma[nseg[i,0]:nseg[i,1]].reshape(1, -1, 1), (len(gamma), 4, 3))
-            tiled_gamma = np.tile(gamma[nseg[0]*(i-1):nseg[0]*i].reshape(1, -1, 1), (len(gamma), 4, 3))
-            gamma1 = np.concatenate((gamma1, tiled_gamma), axis=1)
+    repeats = int(u_BV.shape[1] / len(gamma))
+    gamma_tiled = np.tile(np.repeat(gamma, repeats).reshape(1, -1, 1), (len(gamma), 1, 3))
 
     # multiply gamma * velocity component due to bound vorticity
-    u_BV = np.sum(u_BV * gamma1, axis=1)  # resulting size (nseg, 3)
+    u_BV = np.sum(u_BV * gamma_tiled, axis=1)  # resulting size (nseg, 3)
 
     # sum up all velocity components at the CPs
     u_cp = u_motion.reshape(1, 3) + u_BV + u_FV  # (nseg, 3)
@@ -105,18 +103,20 @@ def LL_residual(gamma, rho, u_BV, u_FV, u_motion, dl, a1, a3, cl_tab, dA, nseg):
     dot_ucp_a1 = np.sum(u_cp * a1, axis=1)
     dot_ucp_a3 = np.sum(u_cp * a3, axis=1)
     alpha_cp = np.arctan2(dot_ucp_a3, dot_ucp_a1)
-    for i in range(n_surfaces):
-        if i==0:
-            # cl = cl_tab[i].__call__(alpha_cp[0:50] * 180.0 / np.pi)
-            cl = np.interp(alpha_cp[0:nseg[0]] * 180.0 / np.pi, cl_tab[i][:,0], cl_tab[i][:,1])
-        else:
-            # cl = np.concatenate((cl, cl_tab[i].__call__(alpha_cp[50*(i-1):50*i] * 180.0 / np.pi)))
-            cl = np.concatenate((cl, np.interp(alpha_cp[nseg[0]*(i-1):nseg[0]*i] * 180.0 / np.pi, cl_tab[i][:,0], cl_tab[i][:,1])))
+
+    # Interpolate cl for each segment
+    # loop through segments using jax.lax.scan, note 'carry' is empty
+    def interp_cl(carry, i):
+        cl = np.interp(alpha_cp[i] * 180 / np.pi, cl_tab[:,0], cl_tab[:,i+1])
+        return np.zeros((0,)), cl
+    _, cl = lax.scan(interp_cl, np.empty((0)), np.arange(0,a1.shape[0]))
+
     L_alpha = cl * 0.5 * rho * (dot_ucp_a1 ** 2 + dot_ucp_a3 ** 2) * np.squeeze(dA)
 
     # difference between two methods = residual
     R = L_alpha - L_gamma
     return R
+
 
 def newton_raphson_solver(f, J, x0, nit=1000, tol=1e-7, display=True):
     x = deepcopy(x0)
@@ -149,7 +149,8 @@ def newton_raphson_solver(f, J, x0, nit=1000, tol=1e-7, display=True):
     else:
         return x
 
-def newton_raphson4jit(f, J, x0, tol=1e-4):
+
+def newton_raphson4jit(f, J, x0, tol):
 
     init_val = deepcopy(x0)
     cond_fun = lambda x: np.linalg.norm(f(x)) > tol
@@ -158,7 +159,8 @@ def newton_raphson4jit(f, J, x0, tol=1e-4):
     x = lax.while_loop(cond_fun, body_fun, init_val)
     return x
 
-def steady_LL_solve(lifting_surfaces, u_flow, rho, dt = 0.1, shed_elements_flag = True, nit=10, delta_visc=0.025, wake_from_TE_frac=0.25):
+
+def steady_LL_solve(lifting_surfaces, u_flow, rho, dt=0.1, min_dt=1, include_shed_vorticity=True, variable_time_step=True, nit=10, delta_visc=0.025, wake_from_TE_frac=0.25, display=True):
     # lifting surfaces = list of dictionaries. Each dictionary contains the BV locations, unit vectors etc
     
     # unpack lifting surface dictionaries
@@ -171,14 +173,18 @@ def steady_LL_solve(lifting_surfaces, u_flow, rho, dt = 0.1, shed_elements_flag 
             dA = lifting_surfaces[i]["dA"]
             dl = lifting_surfaces[i]["dl"]
             # cl_spl = [lifting_surfaces[i]["cl_spl"]]
-            cl_tab = [lifting_surfaces[i]["cl_tab"]]
+            # cl_tab = [lifting_surfaces[i]["cl_tab"]]
+            polar_alpha0 = lifting_surfaces[i]["polar_alpha"].reshape(-1,1)
+            cl_tab = np.hstack((polar_alpha0, lifting_surfaces[i]["polar_cl"]))
             xnode1 = lifting_surfaces[i]["xnode1"]
             xnode2 = lifting_surfaces[i]["xnode2"]
             TE = [lifting_surfaces[i]["TE"]]
             l0 = lifting_surfaces[i]["l0"]
-            # n_seg = np.array([0, xcp.shape[0]]).reshape(1,-1)
-            n_seg = [xcp.shape[0]]
-            gamma_ini = ini_estimate_gamma(u_flow, dl, a1, a3, cl_tab[0], dA, rho)
+            nseg = np.array([[0, xcp.shape[0]]], int)
+            # nseg = [xcp.shape[0]]
+            # nseg_all = np.array(xcp.shape[0], int)
+            # nseg0 = np.array(xcp.shape[0], int)
+            gamma_ini = ini_estimate_gamma(u_flow, dl, a1, a3, cl_tab, dA, rho)
         else:
             xcp = np.vstack((xcp, lifting_surfaces[i]["xcp"]))
             a1 = np.vstack((a1, lifting_surfaces[i]["a1"]))
@@ -188,61 +194,103 @@ def steady_LL_solve(lifting_surfaces, u_flow, rho, dt = 0.1, shed_elements_flag 
             xnode1 = np.concatenate((xnode1, lifting_surfaces[i]["xnode1"]), axis=1)
             xnode2 = np.concatenate((xnode2, lifting_surfaces[i]["xnode2"]), axis=1)
             l0 = np.concatenate((l0, lifting_surfaces[i]["l0"]))
-            # cl_spl.append(lifting_surfaces[i]["cl_spl"])
-            cl_tab.append(lifting_surfaces[i]["cl_tab"])
+            polar_alphai = lifting_surfaces[i]["polar_alpha"].reshape(-1,1)
+            if len(polar_alphai) != len(polar_alpha0):
+                raise Exception("Alpha distribution in lift polars have different lengths for different surfaces. Ensure lift polars are specified on equivalent alpha grids.")
+            if all(polar_alphai != polar_alpha0):
+                raise Exception("Lift polars should be specified on equivalent alpha grids.")
+            cl_tab = np.hstack((cl_tab, lifting_surfaces[i]["polar_cl"]))
             TE.append(lifting_surfaces[i]["TE"])
-            # n_seg = np.concatenate((n_seg, np.array([n_seg[i-1,1], n_seg[i-1,1]+lifting_surfaces[i]["xcp"].shape[0]]).reshape(1,-1)), axis=0)
-            n_seg.append(lifting_surfaces[i]["xcp"].shape[0])
+            # nseg = np.concatenate((nseg, np.array([nseg[i-1,1], nseg[i-1,1]+lifting_surfaces[i]["xcp"].shape[0]]).reshape(1,-1)), axis=0)
+            # nseg.append(lifting_surfaces[i]["xcp"].shape[0])
+            # nseg_all = np.stack((nseg_all, lifting_surfaces[i]["xcp"].shape[0]))
+            nseg = np.vstack((nseg, np.array([[nseg[i-1,1], nseg[i-1,1]+lifting_surfaces[i]["xcp"].shape[0]]], int)))
             gamma_ini = np.concatenate((gamma_ini, ini_estimate_gamma(u_flow, 
                                                         lifting_surfaces[i]["dl"], 
                                                         lifting_surfaces[i]["a1"], 
                                                         lifting_surfaces[i]["a3"], 
-                                                        lifting_surfaces[i]["cl_tab"], 
+                                                        np.hstack((polar_alphai, lifting_surfaces[i]["polar_cl"])), 
                                                         lifting_surfaces[i]["dA"],
                                                         rho)))
+    nseg_per_surf = np.diff(nseg, axis=1)
+    # if n_surf>1 and any(np.diff(nseg_per_surf, axis=0) != 0):
+    #     raise Exception("Multiple surfaces must have the same number of lifting line segments.")
 
-    # pre-allocate wake element table
+    # if omitting shed vorticity, then set TE elmts to have length = 0
+    nrepeats = 4
+    if include_shed_vorticity == False:
+        mask = np.tile(np.array([False, False, True, False]), int(xnode1.shape[1] / 4))
+        # xnode1 = np.delete(xnode1, mask, 1)
+        # xnode2 = np.delete(xnode2, mask, 1)
+        # l0 = np.delete(l0, mask)
+        # xnode2[:,mask,:] = xnode1[:,mask,:]
+        # l0 = update_elmt_length(np.squeeze(xnode1), np.squeeze(xnode2)) 
+        nrepeats = 3
+
     # description of wake element table structure:
     # - all elements stemming from 1st surface, then 2nd surface, then 3rd, and so on...
     # - for one surface, we have 4*n_seg elements at t=0, and then 3*n_seg elements from then on
     # - for t=0, create a new full ring, with same order as for the BVs: LL(front), RHS, TE(rear), LHS
     # - for t>0, create only the front of a ring, with order: LL(front), RHS, LHS
-    n_elmts_layer1 = sum(n_seg)*4
-    n_elmts_all_other_layers = sum(n_seg)*3
+    n_elmts_layer1 = np.sum(nseg_per_surf)*nrepeats
+    n_elmts_all_other_layers = np.sum(nseg_per_surf)*(nrepeats-1)
     n_wake_elmts = n_elmts_layer1 + nit * n_elmts_all_other_layers
-    # if shed_elements_flag==True:
-        # n_elmts_layer1 = 4*
-        # n_elmts_per_layer = 
+
+    # pre-allocate wake element table
     # wake_elmt_table: [xnode1 (nelmts, 3), xnode2 (nelmts, 3), gamma (nelmts,), l0 (nelmts,)]
     wake_elmt_table = np1.zeros((n_wake_elmts, 8))
     convectable_elmts_all = -np1.ones((n_wake_elmts, 2), np1.int8)
     elmtIDs_all = -np1.ones((n_wake_elmts, 3), np1.int64)
+
     nFVs = 0
+    dt0 = deepcopy(dt)
     gamma_BVs = gamma_ini
     gamma_BV_step = np1.zeros((nit))
-    # do the quasi-time loop
+
+    # declare jax functions
+    fast_LL_res = jit(LL_residual)
+    J = jacfwd(fast_LL_res, argnums=0)
+    fast_BS = jit(eval_biot_savart)
+
+    # perform the quasi-time loop
     for t in range(nit):
+
         # eval biot-savart at CPs due to bound vorticity
-        u_BV = eval_biot_savart(xcp, xnode1, xnode2, np.ones((l0.shape)), l0, delta_visc=delta_visc)
+        u_BV = fast_BS(xcp, xnode1, xnode2, np.ones((l0.shape)), l0, delta_visc=delta_visc)
+        u_BV = u_gamma_remove_nan_inf(u_BV)
+
         # eval biot-savart at CPs due to free wake vorticity
         u_FV = np.zeros((1,3))
         if nFVs > 0:
-            u_FV = eval_biot_savart(xcp, wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6], wake_elmt_table[0:nFVs, 6], wake_elmt_table[0:nFVs, 7], delta_visc=delta_visc)        
-            u_FV = np.sum(u_FV, axis=1)
+            u_FV = fast_BS(xcp, wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6], wake_elmt_table[0:nFVs, 6], wake_elmt_table[0:nFVs, 7], delta_visc=delta_visc)        
+            u_FV = np.sum(u_gamma_remove_nan_inf(u_FV), axis=1)
 
         # calc circulation at lifting surfaces
         # declare residual function
-        R = lambda gamma: LL_residual(gamma, rho, u_BV, u_FV, u_flow, dl, a1, a3, cl_tab, dA, n_seg)
-        J = jacfwd(R) # declare jacobian of residual
+        R = lambda gamma: fast_LL_res(gamma, rho, u_BV, u_FV, u_flow, dl, a1, a3, cl_tab, dA)
+        Ji = lambda gamma: J(gamma, rho, u_BV, u_FV, u_flow, dl, a1, a3, cl_tab, dA)
 
         # compute circulation
         gamma_BVs_prev = gamma_BVs
-        gamma_BVs, step, R = newton_raphson_solver(R, J, gamma_BVs, nit=100, tol=1e-4, display=True)
+        # gamma_BVs, step, R = newton_raphson_solver(R, Ji, gamma_BVs, nit=100, tol=1e-4, display=True)
+        gamma_BVs = newton_raphson_solver(R, Ji, gamma_BVs, nit=100, tol=1e-4, display=False)
+        # gamma_BVs = newton_raphson4jit(R, Ji, gamma_BVs, 1e-4)
         gamma_BV_step[t] = np.sqrt(np.sum((gamma_BVs - gamma_BVs_prev) ** 2))
-        # gamma_BVs = newton_raphson4jit(R, J, gamma_ini, tol=1e-4)
-        gamma_elmt = np.empty((0))
-        for i in range(n_surf):
-            gamma_elmt = np.concatenate((gamma_elmt, np.tile(gamma_BVs[n_seg[0]*i:n_seg[0]*(i+1)], (4))))
+
+        # print out time step and gamma step
+        if (display) and (t % 5 == 0):
+            print("Steady aero solve    -    time step ", str(t), "    -    d_gamma = ", str(gamma_BV_step[t]))
+
+        # define end condition for steady solve
+        if display and gamma_BV_step[t] < 1e-5:
+            print("Ending steady loop due to convergence of bound circulation (gamma).")
+            break
+        
+
+        # modify time step by relative change in gamma (circulation)
+        if variable_time_step:
+            dt = dt0 * gamma_BV_step[0] / gamma_BV_step[t]
+            dt = min(dt, min_dt)
 
 
         # convect/update wake
@@ -280,53 +328,63 @@ def steady_LL_solve(lifting_surfaces, u_flow, rho, dt = 0.1, shed_elements_flag 
 
         # add new wake elements - add elmt connectivity, node locations, and gamma
         # include option to ignore shed elements?
-        near_wake_elmts, convectable_elmts, elmtIDs, n_FVs_new = add_wake_elmts(n_surf, TE, wake_from_TE_frac, u_flow, dt, gamma_BVs, n_seg, nFVs, t)
+        gamma_list = []
+        for i in range(n_surf):
+            gamma_list.append(gamma_BVs[nseg[i,0]:nseg[i,1]])
+        near_wake_elmts, convectable_elmts, elmtIDs, n_FVs_new = add_wake_elmts(TE, wake_from_TE_frac, u_flow, dt, gamma_list, nFVs, t, include_shed_vorticity)
         wake_elmt_table[nFVs:n_FVs_new, 0:7] = near_wake_elmts
         convectable_elmts_all[nFVs:n_FVs_new, 0:2] = convectable_elmts
         elmtIDs_all[nFVs:n_FVs_new, 0:3] = elmtIDs
         nFVs = n_FVs_new
         # upate gamma of previous layer (avoids creating duplicate elmts on same line)
-        if t > 0: # and include_shed_vorticity==True:
+        if t > 0 and include_shed_vorticity==True:
             mask = (elmtIDs_all[:, 0] == t - 1) & (elmtIDs_all[:, 1] == 3)
             wake_elmt_table[mask, 6] = wake_elmt_table[mask, 6] - gamma_BVs
 
         # update element lengths
         wake_elmt_table[0:nFVs, 7] = update_elmt_length(wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6]) 
 
-    fig = plt.figure()
-    ax = fig.gca(projection="3d")
-    ax.scatter(np.vstack((wake_elmt_table[0:nFVs, 0], wake_elmt_table[0:nFVs, 3])), 
-                np.vstack((wake_elmt_table[0:nFVs, 1], wake_elmt_table[0:nFVs, 4])), 
-                np.vstack((wake_elmt_table[0:nFVs, 2], wake_elmt_table[0:nFVs, 5])))
-    plt.show()
 
-    u_BV = np.sum(eval_biot_savart(xcp, xnode1, xnode2, gamma_elmt, l0, delta_visc=delta_visc), axis=1)
-    u_FV = np.sum(eval_biot_savart(xcp, wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6], wake_elmt_table[0:nFVs, 6], wake_elmt_table[0:nFVs, 7], delta_visc=delta_visc), axis=1)     
+    if display and t == (nit - 1):
+        print("Ending steady loop due to reaching maximum number of iterations.")
+    # Plot wake geometry
+    # fig = plt.figure()
+    # ax = fig.gca(projection="3d")
+    # ax.scatter(np.vstack((wake_elmt_table[0:nFVs, 0], wake_elmt_table[0:nFVs, 3])), 
+    #             np.vstack((wake_elmt_table[0:nFVs, 1], wake_elmt_table[0:nFVs, 4])), 
+    #             np.vstack((wake_elmt_table[0:nFVs, 2], wake_elmt_table[0:nFVs, 5])))
+    # plt.show()
+
+    # compute induced velocity at CPs for final wake configuration
+    nreps = int(xnode1.shape[1] / len(gamma_BVs))
+    u_BV = fast_BS(xcp, xnode1, xnode2, np.repeat(gamma_BVs, nreps), l0, delta_visc=delta_visc)
+    u_BV = np.sum(u_gamma_remove_nan_inf(u_BV), axis=1)
+    u_FV = fast_BS(xcp, wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6], wake_elmt_table[0:nFVs, 6], wake_elmt_table[0:nFVs, 7], delta_visc=delta_visc)   
+    u_FV = np.sum(u_gamma_remove_nan_inf(u_FV), axis=1)
     u_cp = u_BV + u_FV
 
-    return u_cp, gamma_ini, gamma_BVs, wake_elmt_table 
+    return u_cp, gamma_ini, gamma_BVs, wake_elmt_table, gamma_BV_step
 
-def add_wake_elmts(n_surf, TE, wake_from_TE_frac, u_flow, dt, gamma_BVs, n_seg, nFVs, t, include_shed_vorticity=True):
+
+def add_wake_elmts(TE, wake_from_TE_frac, u_flow, dt, gamma_BVs, nFVs, t, include_shed_vorticity):
     new_wake_elmts = np.empty((0,7))
     convectable_elmts = np.empty((0,2))
     elmtIDs = np.empty((0,3))
+    n_surf = len(TE)
     for i in range(n_surf):
         TE_nodes = TE[i]
         first_shed_nodes = TE[i] + wake_from_TE_frac * u_flow * dt
-        gamma_BVs_i = gamma_BVs[n_seg[i]*i:n_seg[i]*(i+1)]
-        gamma_trail = np1.zeros((n_seg[i]+1, 1))
-        gamma_trail[0:n_seg[i],0] = -gamma_BVs_i
-        gamma_trail[1:,0] = gamma_trail[1:,0] + gamma_BVs_i
+        gamma_BVs_i = gamma_BVs[i]
+        gamma_trail = np.hstack([-gamma_BVs_i[0], gamma_BVs_i[:-1] - gamma_BVs_i[1:], gamma_BVs_i[-1]]).reshape(-1,1)
         shed_elmts = np.empty((0,7))
         shed_elmts1 = np.empty((0,7))
         if include_shed_vorticity:
-            if t==0:
-                # create n_seg shed elmts at frac_conv_TE
-                # only released on first time step, forms final line of wake elements in vortex lattice
-                shed_elmts1 = np.hstack((first_shed_nodes[1:,:], first_shed_nodes[0:-1,:], gamma_BVs_i.reshape(-1,1)))
             # create n_seg shed elmts at TE
             shed_elmts = np.hstack((TE_nodes[0:-1,:], TE_nodes[1:,:], gamma_BVs_i.reshape(-1,1)))
-
+        if t==0:
+            # create n_seg shed elmts at frac_conv_TE
+            # only released on first time step, forms final line of wake elements in vortex lattice
+            shed_elmts1 = np.hstack((first_shed_nodes[1:,:], first_shed_nodes[0:-1,:], gamma_BVs_i.reshape(-1,1)))
         # create n_seg+1 trailing elements
         trailing_elmts = np.hstack((TE_nodes, first_shed_nodes, gamma_trail))
         
@@ -348,9 +406,16 @@ def add_wake_elmts(n_surf, TE, wake_from_TE_frac, u_flow, dt, gamma_BVs, n_seg, 
     return new_wake_elmts, convectable_elmts, elmtIDs, n_FVs_new
 
 
+def u_gamma_remove_nan_inf(u_gamma):
+    mask = np.isnan(u_gamma) | np.isinf(u_gamma)
+    u_gamma = u_gamma.at[mask].set(0)
+    return u_gamma
+
+
 def update_elmt_length(nodes1, nodes2):
     length = np.sqrt(np.sum((nodes2-nodes1) ** 2, axis=1))
     return length
+
 
 def rotation_matrix(w, angle, deg=True):
     # w is the axis to rotate about, size (3,)

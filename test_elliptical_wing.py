@@ -32,7 +32,8 @@ def test_elliptical_wing():
     lifting_surface = [elliptical_wing.create_dict()]
 
     # do steady lifting line solve
-    out = steady_LL_solve(lifting_surface, u_flow, rho, dt=0.5, nit=50, delta_visc=0.00)
+    min_dt = c_root/np.linalg.norm(u_flow)
+    out = steady_LL_solve(lifting_surface, u_flow, rho, dt=0.5, min_dt=min_dt, include_shed_vorticity=True, nit=50, delta_visc=0.00)
     u_gamma = out[0]
 
     # compute lift coefficient given steady vortex solve
