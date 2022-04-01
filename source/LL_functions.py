@@ -21,6 +21,33 @@ def numerical_jacobian(f, x, h=1e-4):
     return J
 
 
+def plot_wake(lifting_surfaces, wake_elmt_table, elmtIDs, ax=[]):
+    # loop through all lifting surfaces in the simulation
+    for isurf in range(len(lifting_surfaces)):
+        x_is = []
+        y_is = []
+        z_is = []
+        for it in range(np.max(elmtIDs[:,0])):
+            # find mask of trailing elmtIDs at current time and surface
+            mask = (elmtIDs[:,0]==it) & (elmtIDs[:,1]==2) & (elmtIDs[:,2]==isurf)
+            # append node 2 of the masked elements
+            x_is.append(wake_elmt_table[mask,3])
+            y_is.append(wake_elmt_table[mask,4])
+            z_is.append(wake_elmt_table[mask,5])
+        # append node 1 of the final layer of masked elements
+        x_is.append(wake_elmt_table[mask,0])
+        y_is.append(wake_elmt_table[mask,1])
+        z_is.append(wake_elmt_table[mask,2])
+        # append TE nodes
+        x_is.append(lifting_surfaces[isurf]["TE"][:,0])
+        y_is.append(lifting_surfaces[isurf]["TE"][:,1])
+        z_is.append(lifting_surfaces[isurf]["TE"][:,2])
+        # add wireframe of current wake to the plot
+        ax.plot_wireframe(  np.stack((x_is)), 
+                            np.stack((y_is)), 
+                            np.stack((z_is)))
+
+
 def eval_biot_savart(xcp0, xnode1, xnode2, gamma, l0, delta_visc=0.025):
     # xcp: (ncp, 3)
     # xnode1, xnode2: (1, nvor, 3)
@@ -160,7 +187,7 @@ def newton_raphson4jit(f, J, x0, tol):
     return x
 
 
-def steady_LL_solve(lifting_surfaces, u_flow, rho, dt=0.1, min_dt=1, include_shed_vorticity=True, variable_time_step=True, nit=10, delta_visc=0.025, wake_from_TE_frac=0.25, display=True):
+def steady_LL_solve(lifting_surfaces, u_flow, rho, dt=0.1, min_dt=1, wake_rollup=False, include_shed_vorticity=True, variable_time_step=True, nit=10, delta_visc=0.025, wake_from_TE_frac=0.25, display=True):
     # lifting surfaces = list of dictionaries. Each dictionary contains the BV locations, unit vectors etc
     
     # unpack lifting surface dictionaries
@@ -246,6 +273,7 @@ def steady_LL_solve(lifting_surfaces, u_flow, rho, dt=0.1, min_dt=1, include_she
     dt0 = deepcopy(dt)
     gamma_BVs = gamma_ini
     gamma_BV_step = np1.zeros((nit))
+    nreps = int(xnode1.shape[1] / len(gamma_BVs))
 
     # declare jax functions
     fast_LL_res = jit(LL_residual)
@@ -295,25 +323,34 @@ def steady_LL_solve(lifting_surfaces, u_flow, rho, dt=0.1, min_dt=1, include_she
 
         # convect/update wake
         if nFVs > 0:
-            # calc velocities at wake nodes due to u_gamma and u_flow
-            # get unique wake nodes
-            # unique_wake_nodes = np.unique(np.vstack((wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6])), axis=0)
-            # # compute induced velocity at wake nodes due to free vorticity
-            # u_wake_FV = eval_biot_savart(unique_wake_nodes, wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6], wake_elmt_table[0:nFVs, 6], wake_elmt_table[0:nFVs, 7], delta_visc)
-            # u_wake_FV = np.sum(u_wake_FV, axis=1)
-            # # compute induced velocity at wake nodes due to bound vorticity
-            # u_wake_BV = eval_biot_savart(unique_wake_nodes, xnode1, xnode2, gamma_elmt, l0, delta_visc)
-            # u_wake_BV = np.sum(u_wake_BV, axis=1)
+            u_convect1 = u_flow 
+            u_convect2 = u_flow
 
-            u_convect = u_flow # + u_wake_FV + u_wake_BV
+            if wake_rollup:
+                # calc velocities at wake nodes due to u_gamma and u_flow
+                # get unique wake nodes
+                unique_wake_nodes, mask_inv = np.unique(np.vstack((wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6])), return_inverse=True, axis=0)
+                # compute induced velocity at wake nodes due to free vorticity
+                u_wake_FV = fast_BS(unique_wake_nodes, wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6], wake_elmt_table[0:nFVs, 6], wake_elmt_table[0:nFVs, 7], delta_visc=delta_visc)
+                u_wake_FV = np.sum(u_gamma_remove_nan_inf(u_wake_FV), axis=1)
+                # compute induced velocity at wake nodes due to bound vorticity
+                u_wake_BV = eval_biot_savart(unique_wake_nodes, xnode1, xnode2, np.repeat(gamma_BVs, nreps), l0, delta_visc)
+                u_wake_BV = np.sum(u_gamma_remove_nan_inf(u_wake_BV), axis=1)
+                # sum flow velocity with induced velocities
+                u_convect = u_flow + u_wake_FV + u_wake_BV
+                # use masks to obtain correct velocities
+                inv_mask1, inv_mask2 = np.split(mask_inv, 2)
+                inv_mask1 = inv_mask1[convectable_elmts_all[0:nFVs,0]==1]
+                inv_mask2 = inv_mask2[convectable_elmts_all[0:nFVs,1]==1]
+                u_convect1, u_convect2 = u_convect[inv_mask1,:], u_convect[inv_mask2,:]
 
             # convect wake nodes 
             # convect node 1's
             mask = convectable_elmts_all[:,0]==1
-            wake_elmt_table[mask, 0:3] = wake_elmt_table[mask, 0:3] + u_convect*dt
+            wake_elmt_table[mask, 0:3] = wake_elmt_table[mask, 0:3] + u_convect1*dt
             # convext node 2's
             mask = convectable_elmts_all[:,1]==1
-            wake_elmt_table[mask, 3:6] = wake_elmt_table[mask, 3:6] + u_convect*dt
+            wake_elmt_table[mask, 3:6] = wake_elmt_table[mask, 3:6] + u_convect2*dt
 
             # convect TE nodes to fractionally convected TE
             # convect node 1's
@@ -327,16 +364,15 @@ def steady_LL_solve(lifting_surfaces, u_flow, rho, dt=0.1, min_dt=1, include_she
 
 
         # add new wake elements - add elmt connectivity, node locations, and gamma
-        # include option to ignore shed elements?
         gamma_list = []
         for i in range(n_surf):
-            gamma_list.append(gamma_BVs[nseg[i,0]:nseg[i,1]])
+            gamma_list.append(gamma_BVs[nseg[i,0]:nseg[i,1]]) # convert gamma into a list
         near_wake_elmts, convectable_elmts, elmtIDs, n_FVs_new = add_wake_elmts(TE, wake_from_TE_frac, u_flow, dt, gamma_list, nFVs, t, include_shed_vorticity)
         wake_elmt_table[nFVs:n_FVs_new, 0:7] = near_wake_elmts
         convectable_elmts_all[nFVs:n_FVs_new, 0:2] = convectable_elmts
         elmtIDs_all[nFVs:n_FVs_new, 0:3] = elmtIDs
         nFVs = n_FVs_new
-        # upate gamma of previous layer (avoids creating duplicate elmts on same line)
+        # upate gamma of previous wake layer (avoids creating duplicate elmts on same line)
         if t > 0 and include_shed_vorticity==True:
             mask = (elmtIDs_all[:, 0] == t - 1) & (elmtIDs_all[:, 1] == 3)
             wake_elmt_table[mask, 6] = wake_elmt_table[mask, 6] - gamma_BVs
@@ -347,23 +383,15 @@ def steady_LL_solve(lifting_surfaces, u_flow, rho, dt=0.1, min_dt=1, include_she
 
     if display and t == (nit - 1):
         print("Ending steady loop due to reaching maximum number of iterations.")
-    # Plot wake geometry
-    # fig = plt.figure()
-    # ax = fig.gca(projection="3d")
-    # ax.scatter(np.vstack((wake_elmt_table[0:nFVs, 0], wake_elmt_table[0:nFVs, 3])), 
-    #             np.vstack((wake_elmt_table[0:nFVs, 1], wake_elmt_table[0:nFVs, 4])), 
-    #             np.vstack((wake_elmt_table[0:nFVs, 2], wake_elmt_table[0:nFVs, 5])))
-    # plt.show()
 
     # compute induced velocity at CPs for final wake configuration
-    nreps = int(xnode1.shape[1] / len(gamma_BVs))
     u_BV = fast_BS(xcp, xnode1, xnode2, np.repeat(gamma_BVs, nreps), l0, delta_visc=delta_visc)
     u_BV = np.sum(u_gamma_remove_nan_inf(u_BV), axis=1)
     u_FV = fast_BS(xcp, wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6], wake_elmt_table[0:nFVs, 6], wake_elmt_table[0:nFVs, 7], delta_visc=delta_visc)   
     u_FV = np.sum(u_gamma_remove_nan_inf(u_FV), axis=1)
     u_cp = u_BV + u_FV
 
-    return u_cp, gamma_ini, gamma_BVs, wake_elmt_table, gamma_BV_step
+    return u_cp, gamma_ini, gamma_BVs, wake_elmt_table, gamma_BV_step, elmtIDs_all
 
 
 def add_wake_elmts(TE, wake_from_TE_frac, u_flow, dt, gamma_BVs, nFVs, t, include_shed_vorticity):

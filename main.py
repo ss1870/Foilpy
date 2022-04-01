@@ -31,7 +31,7 @@ front_wing = LiftingSurface(rt_chord=200, #250
                             sweep_curv=3,   # 3
                             dih_tip=-0,  # -75
                             dih_curve=2,  # 0
-                            afoil_name='naca2412',
+                            afoil='naca2412',
                             nsegs=40,
                             units='mm')
 front_wing.plot2D()
@@ -45,7 +45,7 @@ stabiliser = LiftingSurface(rt_chord=90,
                             sweep_curv=2,
                             dih_tip=30,
                             dih_curve=8,
-                            afoil_name='naca0012',
+                            afoil='naca0012',
                             nsegs=40,
                             units='mm')
 
@@ -55,7 +55,7 @@ mast = LiftingSurface(rt_chord=130,
                       span=600,
                       Re=re,
                       type='mast',
-                      afoil_name='naca0015',
+                      afoil='naca0015',
                       nsegs=4,
                       units='mm')  # Axis mast is 19 mm thick, and around 130 mm chord = ~15% thickness
 
@@ -69,41 +69,33 @@ foil = FoilAssembly(front_wing,
                     stabiliser_angle=-2,
                     units='mm')
 
-lifting_surfaces = foil.surface2dict()
 rho = 1025
+
+# analyse foil over range of angles
+# angle = np.linspace(-5,10,4)
+# foil.analyse_foil(angle, -u_motion, rho, compare_roll_up=True)
+
+lifting_surfaces = foil.surface2dict()
+out = steady_LL_solve(lifting_surfaces, -u_motion, rho, dt=0.05, nit=30, wake_rollup=True, variable_time_step=False)
+print(foil.compute_foil_loads(-u_motion, rho, out[0]))
+
+wake_elmt_table = out[3]
+elmtIDs = out[5]
+
+foil.plot_wake(lifting_surfaces, wake_elmt_table, elmtIDs)
+
+out = steady_LL_solve(lifting_surfaces, -u_motion, rho, dt=0.05, nit=30, wake_rollup=False, variable_time_step=False)
+print(foil.compute_foil_loads(-u_motion, rho, out[0]))
+
+# lifting_surfaces = foil.surface2dict()
 # foil.plot_foil_assembly()
-print(foil.compute_foil_loads(-u_motion, rho))
-u_cp, gamma_ini, gamma_BVs, wake_elmt_table, gamma_hist = steady_LL_solve(lifting_surfaces, -u_motion, rho, dt=0.1, nit=20)
-fig = plt.figure()
-plt.plot(foil.main_wing.xcp[:,0], gamma_ini[0:foil.main_wing.nsegs], 'r-')
-plt.plot(foil.main_wing.xcp[:,0], gamma_BVs[0:foil.main_wing.nsegs], 'g-')
-plt.grid(True)
-plt.show(block=True)
-
-print(foil.compute_foil_loads(-u_motion, rho, u_cp))
-
-print(str(np.sum(foil.main_wing.LL_strip_theory_forces(-u_motion, rho), axis=0)))
-np.sum(foil.main_wing.LL_strip_theory_forces(-u_motion+u_cp[0:foil.main_wing.nsegs], rho), axis=0)
-np.sum(foil.stabiliser.LL_strip_theory_forces(-u_motion+u_cp[foil.main_wing.nsegs:(foil.main_wing.nsegs+foil.stabiliser.nsegs)], rho), axis=0)
-
-
-# foil.rotate_foil_assembly([1, 0, 0])
-# print(np.sum(foil.compute_foil_loads(u_motion, 1025), axis=0))
-# foil.rotate_foil_assembly([-1, 0, 0])
-
-angle = np.linspace(-5,10,8)
-load_save = np.zeros((angle.shape[0], 3))
-for i in range(len(angle)):
-    foil.rotate_foil_assembly([angle[i], 0, 0])
-    loads = foil.compute_foil_loads(-u_motion, rho)
-    load_save[i,:] = loads[1:4]
-    foil.rotate_foil_assembly([-angle[i], 0, 0])
-
-fig = plt.figure()
-plt.plot(angle, load_save, 'k-')
-plt.grid(True)
-plt.show()
-
+# print(foil.compute_foil_loads(-u_motion, rho))
+# u_cp, gamma_ini, gamma_BVs, wake_elmt_table, gamma_hist = steady_LL_solve(lifting_surfaces, -u_motion, rho, dt=0.1, nit=20)
+# fig = plt.figure()
+# plt.plot(foil.main_wing.xcp[:,0], gamma_ini[0:foil.main_wing.nsegs], 'r-')
+# plt.plot(foil.main_wing.xcp[:,0], gamma_BVs[0:foil.main_wing.nsegs], 'g-')
+# plt.grid(True)
+# plt.show(block=True)
 
 
 
@@ -111,18 +103,23 @@ plt.show()
 #  - Considerations:
     # - modelling the wing tips accurately and cleanly is important. Be careful with interpolation schemes, and 
     # how well the segment discretisation matches the intended geometry.
+    # - at 5 and 10 kts, wake roll up seems to make negligible difference to overall loads
+        # - Uncertain whether roll up would affect stability
 
 # - Tests:
     # - write test to check jax auto diff of residual is working
-    # - write test of root finding algorithm
+    # - write test of root finding algorithm wth analytical function?
     # - finish elliptical wing test, are there any other things I can test from that?
         # - Get auto test in github?
 
 # - Coding:
-    # - Write method to loop through foil pitch angles and compute forces/moments
-
-# - Plotting wake geometry
-# - wake convection due to induced flow, and functionalise
+    # - implement different method for inputting wing geometry
+        # - try and mimic some of the AXIS foils
+        # - do some investigations around aerofoil profiles and typical afoil thicknesses. How much effect on loads do these have for the AXIS profiles?
+        # - Given an AXIS-recommended setup - do the loads look sensible?
+    # - implement wake reflection due to water surface
+    # - is it possible to output an STL file for the 3D wing geometry?
+    # - try parallel for loop on loop through angles?
 
 # - Unanswered questions:
     # - does large dt make for lower accuracy?

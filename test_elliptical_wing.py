@@ -1,9 +1,9 @@
 #%%
-from source.LL_functions import steady_LL_solve
+from source.LL_functions import steady_LL_solve, plot_wake
 from source.classes import EllipticalWing
 import matplotlib.pyplot as plt
 import numpy as np
-# %matplotlib widget
+%matplotlib widget
 
 def test_elliptical_wing():
 
@@ -33,7 +33,7 @@ def test_elliptical_wing():
 
     # do steady lifting line solve
     min_dt = c_root/np.linalg.norm(u_flow)
-    out = steady_LL_solve(lifting_surface, u_flow, rho, dt=0.5, min_dt=min_dt, include_shed_vorticity=True, nit=50, delta_visc=0.00)
+    out = steady_LL_solve(lifting_surface, u_flow, rho, dt=0.5, min_dt=min_dt, wake_rollup=False, include_shed_vorticity=True, nit=20, delta_visc=0.025)
     u_gamma = out[0]
 
     # compute lift coefficient given steady vortex solve
@@ -55,6 +55,10 @@ def test_elliptical_wing():
     plt.ylabel("Lift coefficient (-)")
     plt.ylim([0.47, 0.48])
     plt.show()
+
+    fig = plt.figure()
+    ax = fig.gca(projection="3d")
+    plot_wake(lifting_surface, out[3], out[5], ax=ax)
 
     assert any(np.isclose(cl, cl_theory, rtol=1e-03, atol=1e-03))
 
