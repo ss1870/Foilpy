@@ -187,7 +187,7 @@ def newton_raphson4jit(f, J, x0, tol):
     return x
 
 
-def steady_LL_solve(lifting_surfaces, u_flow, rho, dt=0.1, min_dt=1, wake_rollup=False, include_shed_vorticity=True, variable_time_step=True, nit=10, delta_visc=0.025, wake_from_TE_frac=0.25, display=True):
+def steady_LL_solve(lifting_surfaces, u_flow, rho, dt=0.1, min_dt=1, reflected_wake=False, water_surface=-0.4, wake_rollup=False, include_shed_vorticity=True, variable_time_step=True, nit=10, delta_visc=0.025, wake_from_TE_frac=0.25, display=True):
     # lifting surfaces = list of dictionaries. Each dictionary contains the BV locations, unit vectors etc
     
     # unpack lifting surface dictionaries
@@ -292,6 +292,25 @@ def steady_LL_solve(lifting_surfaces, u_flow, rho, dt=0.1, min_dt=1, wake_rollup
         if nFVs > 0:
             u_FV = fast_BS(xcp, wake_elmt_table[0:nFVs, 0:3], wake_elmt_table[0:nFVs, 3:6], wake_elmt_table[0:nFVs, 6], wake_elmt_table[0:nFVs, 7], delta_visc=delta_visc)        
             u_FV = np.sum(u_gamma_remove_nan_inf(u_FV), axis=1)
+
+            if reflected_wake:
+
+                def reflect_nodes(node_z, surface_height):
+                    return 2 * surface_height - node_z
+
+                xnode1_reflected = np1.squeeze(deepcopy(xnode1))
+                xnode1_reflected[:,-1] = reflect_nodes(xnode1_reflected[:,-1], water_surface)
+                xnode2_reflected = np1.squeeze(deepcopy(xnode2))
+                xnode2_reflected[:,-1] = reflect_nodes(xnode2_reflected[:,-1], water_surface)
+                wake_nodes_reflected = deepcopy(wake_elmt_table[0:nFVs, 0:6])
+                wake_nodes_reflected[:,2] = reflect_nodes(wake_nodes_reflected[:,2], water_surface)
+                wake_nodes_reflected[:,5] = reflect_nodes(wake_nodes_reflected[:,5], water_surface)
+                reflected_nodes1 = np.vstack((xnode1_reflected, wake_nodes_reflected[:,0:3]))
+                reflected_nodes2 = np.vstack((xnode2_reflected, wake_nodes_reflected[:,3:6]))
+
+                u_RV = fast_BS(xcp, reflected_nodes1, reflected_nodes2, np.concatenate((np.repeat(gamma_BVs, nreps), wake_elmt_table[0:nFVs, 6])), np.concatenate((l0, wake_elmt_table[0:nFVs, 7])), delta_visc=delta_visc) 
+                u_RV = np.sum(u_gamma_remove_nan_inf(u_RV), axis=1)
+                u_FV = u_FV + u_RV
 
         # calc circulation at lifting surfaces
         # declare residual function

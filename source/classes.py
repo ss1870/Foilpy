@@ -113,8 +113,8 @@ class FoilAssembly:
         # Me rider
         # rider_mass = 72 # kg
         # Guess rider CoG is roughly 900mm above feet and initially assume weight spread evenly between feet
-        rider_mass = 72 # 72
-        rider_cog = np.array([0, 0.385, 0.900]) # np.array([0, 385, 900])
+        rider_mass = 75 # 72
+        rider_cog = np.array([0, 0.450, 0.900]) # np.array([0, 385, 900])
 
         self.total_mass = self.mast0.mass + self.main_wing0.mass + self.stabiliser0.mass + fuselage_mass + board_mass + rider_mass
         cog = (self.mast0.mass*self.mast0.cog + self.main_wing0.mass*self.mast0.cog + self.stabiliser0.mass*self.mast0.cog + fuselage_mass*fuselage_cog + board_mass*board_cog + rider_mass*rider_cog)/self.total_mass
@@ -153,7 +153,8 @@ class FoilAssembly:
             # self.cog = apply_rotation(R_pitch, self.cog, 0)
 
     def compute_foil_loads(self, u_flow, rho, u_gamma=[]):
-
+        
+        u_flow = u_flow.reshape(-1,3)
         if u_gamma == []:
             u_main_wing = u_flow
             u_stab = u_flow
@@ -174,63 +175,83 @@ class FoilAssembly:
         total_load[3:] = total_load[3:] + np.sum(main_wing_moment, axis=0)  + np.sum(stab_wing_moment, axis=0)  + np.sum(mast_moment, axis=0) 
         return total_load
 
-    def analyse_foil(self, angle, u_flow, rho, wake_rollup=False, compare_roll_up=False):
-
-        # angle = np.linspace(-5,10,8)
-
-        load_save_strip = np.zeros((angle.shape[0], 6))
-        load_save_LL = np.zeros((angle.shape[0], 6))
+    def analyse_foil(self, angle, u_flow, rho, reflected_wake=False, wake_rollup=False, compare_strip=False, compare_roll_up=False):
+        
+        fig, (axL, axD, axM) = plt.subplots(3, 1)
+        
+        n_angles = angle.shape[0]
+        n_speeds = u_flow.shape[0]
+        if compare_strip:
+            load_save_strip = np.zeros((angle.shape[0], 6, n_speeds))
+        load_save_LL = np.zeros((angle.shape[0], 6, n_speeds))
         if compare_roll_up:
-            load_save_LL_rollup = np.zeros((angle.shape[0], 6))
+            load_save_LL_rollup = np.zeros((angle.shape[0], 6, n_speeds))
             wake_rollup=False
 
-        for i in range(len(angle)):
+        for i in range(n_angles): # loop through angles
             # rotate foil to desired angle
             self.rotate_foil_assembly([angle[i], 0, 0])
+            for j in range(n_speeds): # loop through speeds                
+                
+                # compute LL forces on foil
+                lifting_surfaces = self.surface2dict()
+                out_LL = steady_LL_solve(lifting_surfaces, u_flow[j,:], rho, dt=0.1, min_dt=1, nit=50, reflected_wake=reflected_wake, wake_rollup=wake_rollup)
+                u_cp = out_LL[0]
+                loads_LL = self.compute_foil_loads(u_flow[j,:], rho, u_cp)
+                load_save_LL[i,:,j] = loads_LL
 
-            # compute strip theory forces on foil
-            loads_strip = self.compute_foil_loads(u_flow, rho)
-            load_save_strip[i,:] = loads_strip
+                if compare_strip:
+                    # compute strip theory forces on foil
+                    loads_strip = self.compute_foil_loads(u_flow[j,:], rho)
+                    load_save_strip[i,:, j] = loads_strip
 
-            # compute LL forces on foil
-            lifting_surfaces = self.surface2dict()
-            out_LL = steady_LL_solve(lifting_surfaces, u_flow, rho, dt=0.1, min_dt=1, nit=50, wake_rollup=wake_rollup)
-            u_cp = out_LL[0]
-            loads_LL = self.compute_foil_loads(u_flow, rho, u_cp)
-            load_save_LL[i,:] = loads_LL
-
-            if compare_roll_up:
-                out_LL1 = steady_LL_solve(lifting_surfaces, u_flow, rho, dt=0.1, min_dt=1, nit=50, wake_rollup=True)
-                u_cp = out_LL1[0]
-                loads_LL = self.compute_foil_loads(u_flow, rho, u_cp)
-                load_save_LL_rollup[i,:] = loads_LL
+                if compare_roll_up:
+                    out_LL1 = steady_LL_solve(lifting_surfaces, u_flow[j,:], rho, dt=0.1, min_dt=1, nit=50, wake_rollup=True)
+                    u_cp = out_LL1[0]
+                    loads_LL = self.compute_foil_loads(u_flow[j,:], rho, u_cp)
+                    load_save_LL_rollup[i,:,j] = loads_LL
 
             # rotate foil back to zero angle
             self.rotate_foil_assembly([-angle[i], 0, 0])
+        
+        for j in range(n_speeds):
+            if np.max(load_save_LL[:,3,j]) > 0 and np.min(load_save_LL[:,3,j]) < 0:
+                f = interp1d(load_save_LL[:,3,j], angle)
+                angle_zero_moment = f(0)
+                f = interp1d(angle, load_save_LL[:,2,j])
+                lift_zero_moment = f(angle_zero_moment)
+                f = interp1d(angle, load_save_LL[:,1,j])
+                drag_zero_moment = f(angle_zero_moment)
+                axM.plot(angle_zero_moment, 0, '*')
+                axM.set_title('Zero moment pitch angle = ' + f'{angle_zero_moment:.3f}')
+                axL.plot(angle_zero_moment, lift_zero_moment, '*')
+                axL.set_title('Lift @ zero moment = ' + f'{lift_zero_moment:.2f}')
+                axD.plot(angle_zero_moment, drag_zero_moment, '*')
+                axD.set_title('Drag @ zero moment = ' + f'{drag_zero_moment:.2f}')
 
-        fig, (axL, axD, axM) = plt.subplots(3, 1)
+            if compare_roll_up:
+                axL.plot(angle, load_save_LL_rollup[:,2,j], label='LL_rollup')
+                axD.plot(angle, load_save_LL_rollup[:,1,j])
+                axM.plot(angle, load_save_LL_rollup[:,3,j])
+                
+            if compare_strip:
+                axL.plot(angle, load_save_strip[:,2,j], label='Strip')
+                axD.plot(angle, load_save_strip[:,1,j])
+                axM.plot(angle, load_save_strip[:,3,j])
 
-        if compare_roll_up:
-            axL.plot(angle, load_save_LL_rollup[:,2], label='LL_rollup')
-            axD.plot(angle, load_save_LL_rollup[:,1])
-            axM.plot(angle, load_save_LL_rollup[:,3])
-            
-        axL.plot(angle, load_save_strip[:,2], label='Strip')
-        axL.plot(angle, load_save_LL[:,2], label='LL')
+            axL.plot(angle, load_save_LL[:,2,j], label='LL-V=' + f'{ms2knts(u_flow[j,1]):.1f}')
+            axD.plot(angle, load_save_LL[:,1,j])
+            axM.plot(angle, load_save_LL[:,3,j])
+
         axL.grid(True)
         axL.legend()
         axL.set_ylabel('Lift force (N)')
-
-        axD.plot(angle, load_save_strip[:,1])
-        axD.plot(angle, load_save_LL[:,1])
         axD.grid(True)
         axD.set_ylabel('Drag force (N)')
-
-        axM.plot(angle, load_save_strip[:,3])
-        axM.plot(angle, load_save_LL[:,3])
         axM.grid(True)
         axM.set_ylabel('Pitching moment (Nm)')
         axM.set_xlabel('Angle (deg)')
+
 
         plt.show()
 
@@ -281,16 +302,18 @@ class FoilAssembly:
 
 class LiftingSurface:
 
-    def __init__(self, rt_chord, span, Re, spline_pts=[], tip_chord=[], sweep_tip=0, sweep_curv=0, dih_tip=0, dih_curve=0,
-                 afoil=[], afoil_path=[], type='wing', nsegs=50, units='mm'):
+    def __init__(self, rt_chord, span, Re=[], spline_pts=[], tip_chord=[], sweep_tip=0, sweep_curve=0, dih_tip=0, dih_curve=0,
+                 washout_tip=0, washout_curve=0, afoil=[], afoil_path=[], type='wing', nsegs=50, units='mm', plot_flag=True):
 
         self.rt_chord = unit_2_meters(rt_chord, units)
         self.tip_chord = unit_2_meters(tip_chord, units)
         self.span = unit_2_meters(span, units)
         self.sweep_tip = unit_2_meters(sweep_tip, units)
-        self.sweep_curv = sweep_curv
+        self.sweep_curve = sweep_curve
         self.dih_tip = unit_2_meters(dih_tip, units)
         self.dih_curve = dih_curve
+        self.washout_tip = washout_tip
+        self.washout_curve = washout_curve
         self.type = type
         self.afoil = afoil
         self.nsegs = nsegs
@@ -308,14 +331,17 @@ class LiftingSurface:
 
         if spline_pts != []:
             self.generate_coords_spline(spline_pts, npts=1000)
-        elif spline_pts == [] & tip_chord != []:
+        elif spline_pts == [] and tip_chord != []:
             self.generate_coords_simple(npts=1001)
         else:
             raise Exception("Either spline pts or tip chord must be prescribed.")
 
         if afoil != []:
-            self.define_aerofoil_geom(plot_flag=True)
-            self.compute_afoil_polar(angles=np.linspace(-5, 15, 21), Re=Re, plot_flag=True)
+            self.define_aerofoil_geom(plot_flag=plot_flag)
+            try:
+                self.compute_afoil_polar(angles=np.linspace(-5, 15, 21), Re=Re, plot_flag=plot_flag)
+            except:
+                print("Aerofoil polar calculation failed.")
         # # front_wing.plot2D()
         # # front_wing.plot3D()
         # print("Front wing area =", str(front_wing.calc_simple_proj_wing_area()))
@@ -335,10 +361,11 @@ class LiftingSurface:
             self.f_chord = interp1d(np.array([0, self.span]),
                                     np.array([self.rt_chord, self.tip_chord]))
 
-        sweep_curv = self.sweep_tip * (2 * np.abs(self.x) / self.span) ** self.sweep_curv
-        dihedral_curv = self.dih_tip * (2 * np.abs(self.x) / self.span) ** self.dih_curve
+        sweep_curv = self.sweep_tip * (2 * np.abs(self.x) / self.span) ** self.sweep_curve
+        dihedral_curve = self.dih_tip * (2 * np.abs(self.x) / self.span) ** self.dih_curve
+        self.washout_curve = self.washout_tip * (2 * np.abs(self.x[:,0]) / self.span) ** self.washout_curve
 
-        self.ref_axis = np.hstack((self.x, sweep_curv, dihedral_curv))
+        self.ref_axis = np.hstack((self.x, sweep_curv, dihedral_curve))
 
         chord = self.f_chord(self.x)
 
@@ -346,14 +373,21 @@ class LiftingSurface:
 
         self.LE = np.hstack((self.x,
                              self.ref_axis[:, 1].reshape(npts, 1) + dist_LE_2_refAxis * chord,
-                             dihedral_curv))
+                             dihedral_curve))
         self.TE = np.hstack((self.x,
                              self.ref_axis[:, 1].reshape(npts, 1) - (1 - dist_LE_2_refAxis) * chord,
-                             dihedral_curv))
+                             dihedral_curve))
+        if np.any(self.washout_curve != 0):
+            c = np.cos(self.washout_curve*np.pi/180)
+            s = np.sin(self.washout_curve*np.pi/180)
+            self.LE[:,1] = (self.LE[:,1] - self.ref_axis[:,1]) * c - (self.LE[:,2] - self.ref_axis[:,2]) * s + self.ref_axis[:,1]
+            self.LE[:,2] = (self.LE[:,1] - self.ref_axis[:,1]) * s + (self.LE[:,2] - self.ref_axis[:,2]) * c + self.ref_axis[:,2]
+            self.TE[:,1] = (self.TE[:,1] - self.ref_axis[:,1]) * c - (self.TE[:,2] - self.ref_axis[:,2]) * s + self.ref_axis[:,1]
+            self.TE[:,2] = (self.TE[:,1] - self.ref_axis[:,1]) * s + (self.TE[:,2] - self.ref_axis[:,2]) * c + self.ref_axis[:,2]
 
         self.qu_chord_loc = 0.75 * self.LE + 0.25 * self.TE
 
-    def generate_coords_spline(self, spline_pts, npts=1000):
+    def generate_coords_spline(self, spline_pts, plot_flag=False, npts=1000):
         x = spline_pts[:,0]
         x = np.concatenate((x[:-1], 
                             np.flip(x[1:]),
@@ -369,23 +403,28 @@ class LiftingSurface:
         tck, u = splprep(pts.T, u=None, s=0.0, per=1, k=3) 
         u_new = np.linspace(u.min(), u.max(), 10000)
         x_new, y_new = splev(u_new, tck, der=0)
-        y_new = y_new - (np.max(y_new) + np.min(y_new)) / 2
+        
 
-        # fig, ax = plt.subplots()
-        # # ax.plot(pts[:,0], pts[:,1], 'ro')
-        # ax.plot(x_new, y_new, 'b-')
-        # ax.axis('scaled')
-        # ax.grid(True)
-        # plt.show()
+        if plot_flag:
+            fig, ax = plt.subplots()
+            ax.plot(pts[:,0], pts[:,1], 'ro')
+            ax.plot(x_new, y_new, 'b-')
+            ax.axis('scaled')
+            ax.grid(True)
+            plt.show()
+
+        y_new = y_new - (np.max(y_new) + np.min(y_new)) / 2
 
         mask_LHS = x_new < 0
         mask_LE = y_new >= y_new[x_new == np.min(x_new)]
+        mask_LE_RHS = y_new >= y_new[x_new == np.max(x_new)]
         mask_TE = y_new <= y_new[x_new == np.min(x_new)]
+        mask_TE_RHS = y_new <= y_new[x_new == np.max(x_new)]
 
         LHS_LE = np.unique(np.stack((x_new[mask_LHS & mask_LE], y_new[mask_LHS & mask_LE])).T, axis=0)
-        RHS_LE = np.unique(np.stack((x_new[~mask_LHS & mask_LE], y_new[~mask_LHS & mask_LE])).T, axis=0)
+        RHS_LE = np.unique(np.stack((x_new[~mask_LHS & mask_LE_RHS], y_new[~mask_LHS & mask_LE_RHS])).T, axis=0)
         LHS_TE = np.unique(np.stack((x_new[mask_LHS & mask_TE], y_new[mask_LHS & mask_TE])).T, axis=0)
-        RHS_TE = np.unique(np.stack((x_new[~mask_LHS & mask_TE], y_new[~mask_LHS & mask_TE])).T, axis=0)
+        RHS_TE = np.unique(np.stack((x_new[~mask_LHS & mask_TE], y_new[~mask_LHS & mask_TE_RHS])).T, axis=0)
         LE = np.vstack((LHS_LE, RHS_LE))
         TE = np.vstack((LHS_TE, RHS_TE))
         self.x = np.linspace(np.min(x_new), np.max(x_new), 1000)
@@ -393,6 +432,7 @@ class LiftingSurface:
         TE = np.interp(self.x, TE[:,0], TE[:,1])
 
         dihedral_curv = self.dih_tip * (2 * np.abs(self.x) / self.span) ** self.dih_curve
+        self.washout_curve = self.washout_tip * (2 * np.abs(self.x) / self.span) ** self.washout_curve
         self.LE = np.stack((self.x,
                              LE,
                              dihedral_curv)).T
@@ -401,7 +441,18 @@ class LiftingSurface:
                              dihedral_curv)).T
 
         self.ref_axis = (self.LE + self.TE) / 2
+        if np.any(self.washout_curve != 0):
+            c = np.cos(self.washout_curve*np.pi/180)
+            s = np.sin(self.washout_curve*np.pi/180)
+            self.LE[:,1] = (self.LE[:,1] - self.ref_axis[:,1]) * c - (self.LE[:,2] - self.ref_axis[:,2]) * s + self.ref_axis[:,1]
+            self.LE[:,2] = (self.LE[:,1] - self.ref_axis[:,1]) * s + (self.LE[:,2] - self.ref_axis[:,2]) * c + self.ref_axis[:,2]
+            self.TE[:,1] = (self.TE[:,1] - self.ref_axis[:,1]) * c - (self.TE[:,2] - self.ref_axis[:,2]) * s + self.ref_axis[:,1]
+            self.TE[:,2] = (self.TE[:,1] - self.ref_axis[:,1]) * s + (self.TE[:,2] - self.ref_axis[:,2]) * c + self.ref_axis[:,2]
+        
         self.qu_chord_loc = 0.75 * self.LE + 0.25 * self.TE
+
+        if plot_flag:
+            self.calc_AR()
 
     def plot2D(self):
         x_coords = np.hstack((self.LE[:, 0], np.flip(self.LE[:, 0]), self.LE[0, 0]))
@@ -475,8 +526,18 @@ class LiftingSurface:
         print("Actual wing area is ", str(area*10000), " cm^2")
         return area
 
+    def calc_wing_volume(self):
+        chord = np.linalg.norm(self.LE - self.TE, axis=1)
+        curved_ref_axis = np.append(0, np.cumsum(np.linalg.norm(np.diff(self.ref_axis, axis=0), axis=1)))
+        areas = np.zeros(chord.shape)
+        for i in range(len(chord)):
+            areas[i] = np.trapz(chord[i] * self.afoil_norm_height[:,1], chord[i] * self.afoil_norm_height[:,0])
+        volume = np.trapz(areas, curved_ref_axis)
+        print("Wing volume is ", str(volume*1000000), " cm^3")
+        return volume
+
     def calc_AR(self):
-        AR = self.span ** 2 / self.calc_actual_wing_area()
+        AR = self.span ** 2 / self.calc_proj_wing_area()
         print("Aspect ratio is ", str(AR))
         return AR
 
@@ -524,6 +585,7 @@ class LiftingSurface:
 
             x = np.vstack((xU, xL))
             y = np.vstack((yU, yL))
+            xy = np.hstack((x,y))
             if plot_flag:
                 ax.plot(x_spacing, yc, '-.')
         else: # else if airfoil geometry given in a file
@@ -543,9 +605,29 @@ class LiftingSurface:
 
             # stack list of numbers
             xy = np.stack((xy), axis=0)
-            self.afoil_coords = xy
             x = xy[:,0]
-            y = xy[:,1]
+            y = xy[:,1] 
+
+        self.afoil_coords = xy
+
+        # interpolate over new chord-wise grid
+        LE_ID = np.argmin(xy[:,0])
+        SS_mask = xy[:,1] >= xy[LE_ID,1]
+        PS_mask = xy[:,1] <= xy[LE_ID,1]
+
+        SS_coords = np.unique(xy[SS_mask,:], axis=0)
+        PS_coords = np.unique(xy[PS_mask,:], axis=0)
+
+        x_fine = np.linspace(xy[LE_ID,0], xy[np.argmax(xy[:,0]), 0], 1000)
+        SS_coords_fine = np.interp(x_fine, SS_coords[:,0], SS_coords[:,1])
+        PS_coords_fine = np.interp(x_fine, PS_coords[:,0], PS_coords[:,1])
+
+        height = SS_coords_fine - PS_coords_fine
+
+        self.afoil_rel_thick = np.max(height)
+        self.afoil_norm_height = np.stack((x_fine, height), axis=1)
+        # self.afoil_area = np.trapz(height, x_fine)
+
 
         if plot_flag:
             ax.plot(x, y, '-')
@@ -573,7 +655,8 @@ class LiftingSurface:
         self.cm_spline = CubicSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 3])
 
         self.cl_spline = jc.scipy.interpolate.InterpolatedUnivariateSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 1])
-        self.cl_tab = np.hstack((self.afoil_polar[:,0].reshape(-1,1), self.afoil_polar[:,1].reshape(-1,1)))
+        self.cl_tab = np.stack((self.afoil_polar[:,0], self.afoil_polar[:,1]), axis=1)
+        self.cl_tab = np.stack((angles, np.interp(angles, self.cl_tab[:,0], self.cl_tab[:,1])), axis=1)
 
         if plot_flag:
             fig, ax = plt.subplots()

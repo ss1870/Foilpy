@@ -28,9 +28,11 @@ front_wing = LiftingSurface(rt_chord=200, #250
                             span=800,
                             Re=re,
                             sweep_tip=-200, #-200
-                            sweep_curv=3,   # 3
+                            sweep_curve=3,   # 3
                             dih_tip=-0,  # -75
                             dih_curve=2,  # 0
+                            washout_tip=-3,
+                            washout_curve=2,
                             afoil='naca2412',
                             nsegs=40,
                             units='mm')
@@ -42,7 +44,7 @@ stabiliser = LiftingSurface(rt_chord=90,
                             span=500,
                             Re=re,
                             sweep_tip=-30,
-                            sweep_curv=2,
+                            sweep_curve=2,
                             dih_tip=30,
                             dih_curve=8,
                             afoil='naca0012',
@@ -105,6 +107,7 @@ print(foil.compute_foil_loads(-u_motion, rho, out[0]))
     # how well the segment discretisation matches the intended geometry.
     # - at 5 and 10 kts, wake roll up seems to make negligible difference to overall loads
         # - Uncertain whether roll up would affect stability
+    # - wake reflection doesn't seem to make too much difference either
 
 # - Tests:
     # - write test to check jax auto diff of residual is working
@@ -117,9 +120,13 @@ print(foil.compute_foil_loads(-u_motion, rho, out[0]))
         # - try and mimic some of the AXIS foils
         # - do some investigations around aerofoil profiles and typical afoil thicknesses. How much effect on loads do these have for the AXIS profiles?
         # - Given an AXIS-recommended setup - do the loads look sensible?
-    # - implement wake reflection due to water surface
+    # - need to work out a reasonable design Lift force for kiting, then can see what angles would be required to achieve this over a range of speeds
+    # - check out ncrit for hydrofoils and how to change this in aeropy
+    # - add option for variable relative thickness from root to tip (10 -> 8%?)
     # - is it possible to output an STL file for the 3D wing geometry?
+    # - look into pitch, roll, yaw stability
     # - try parallel for loop on loop through angles?
+
 
 # - Unanswered questions:
     # - does large dt make for lower accuracy?
