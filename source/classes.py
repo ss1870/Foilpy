@@ -2,12 +2,14 @@ from copy import deepcopy
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.interpolate import interp1d, UnivariateSpline, CubicSpline, splprep, splev
+from scipy.interpolate import interp1d, UnivariateSpline, CubicSpline, splprep, splev, pchip_interpolate
 import math
 from source.AeroPy.aeropy.xfoil_module import find_coefficients
 from source.LL_functions import rotation_matrix, translation_matrix, apply_rotation, steady_LL_solve, plot_wake
-import jax_cosmo as jc
+# import jax_cosmo as jc
 import csv
+import stl
+
 
 def ms2knts(velocity):
     return velocity * 1.943844
@@ -22,6 +24,41 @@ def unit_2_meters(val, unit):
         return val/100
     elif unit == 'm':
         return val
+
+def cosspace(d1, d2, n=100, factor=False):
+    # %COSSPACE cosine spaced vector.
+    # %   COSSPACE(X1, X2) generates a row vector of 100 cosine spaced points
+    # %   between X1 and X2. 
+    # %
+    # %   COSSPACE(X1, X2, N) generates N points between X1 and X2.
+    # % 
+    # %   A cosine spaced vector clusters the elements toward the endpoints:
+    # %    X1    || |  |   |    |     |     |    |   |  | ||   X2
+    # % 
+    # %   For negative n, COSSPACE returns an inverse cosine spaced vector with
+    # %   elements sparse toward the endpoints:
+    # %     X1 |     |    |   |  | | | | | |  |   |    |     | X2
+    # % 
+    # %   For -2 < N < 2, COSSPACE returns X2.
+    # % 
+    # %   COSSPACE(X1, X2, N, W) clusters the elements to a lesser degree as
+    # %   dictated by W. W = 0 returns a normal cosine or arccosine spaced
+    # %   vector. W = 1 is the same as LINSPACE(X1, X2, N). Experiment with W < 0
+    # %   and W > 1 for different clustering patterns.
+
+    if n < 0:
+        n = np.floor(-n)
+        y = d1 + (d2 - d1) / np.pi * np.arccos(1 - 2 * np.arange(0, n) / (n - 1))
+    else:
+        n = np.floor(n)
+        y = d1 + (d2 - d1) / 2 * (1 - np.cos(np.pi / (n-1) * np.arange(0, n)))
+
+    if factor != False:
+        y = (1-factor) * y + factor * np.append(d1 + np.arange(0, n-1) * (d2-d1) / (n-1), d2)
+
+    y[0] = d1 # avoid numerical error
+    y[-1] = d2 # avoid numerical error
+    return y
 
 class FoilAssembly:
 
@@ -654,7 +691,7 @@ class LiftingSurface:
         self.cd_spline = CubicSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 2])
         self.cm_spline = CubicSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 3])
 
-        self.cl_spline = jc.scipy.interpolate.InterpolatedUnivariateSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 1])
+        # self.cl_spline = jc.scipy.interpolate.InterpolatedUnivariateSpline(self.afoil_polar[:, 0], self.afoil_polar[:, 1])
         self.cl_tab = np.stack((self.afoil_polar[:,0], self.afoil_polar[:,1]), axis=1)
         self.cl_tab = np.stack((angles, np.interp(angles, self.cl_tab[:,0], self.cl_tab[:,1])), axis=1)
 
@@ -800,6 +837,145 @@ class LiftingSurface:
                                 "TE": self.TEv, 
                                 "l0": np.array([obj.length0 for obj in self.BVs])} 
         return lifting_surface_dict
+
+    def export_wing_2_stl(self, stl_save_name, SF=1000, mounting_angle=0, resolution='low', plot_flag=True):
+
+        if resolution == 'high':
+            ncs = 201
+            ncs_pts = 251
+        elif resolution == 'medium':
+            ncs = 101
+            ncs_pts = 151
+        elif resolution == 'low':
+            ncs = 21
+            ncs_pts = 25  
+
+        # prep and interpolate airfoil on new grid
+        # smoothing (pchip) interpolation of afoil on evenly spaced arc-length grid
+        afoil_coords_in, indx = np.unique(self.afoil_coords, return_index=True, axis=0)
+        afoil_coords_in = self.afoil_coords[np.sort(indx),:]
+        s_coord = np.append(0, np.cumsum(np.sqrt(np.sum(np.diff(afoil_coords_in, axis=0) ** 2, axis=1))))
+        new_s_grid = np.linspace(s_coord[0], s_coord[-1], ncs_pts)
+        # new_s_grid = cosspace(s_coord[0], s_coord[-1], n=-ncs_pts, factor=0.5)
+        afoil_coords = pchip_interpolate(s_coord, afoil_coords_in, new_s_grid)
+
+        if plot_flag:
+            fig, ax_afoil = plt.subplots()
+            ax_afoil.plot(afoil_coords_in[:,0], afoil_coords_in[:,1], 'r-', label ='Input')
+            ax_afoil.plot(afoil_coords[:,0], afoil_coords[:,1], 'b-', marker=None, label ='Interpolated')
+            ax_afoil.legend()
+            ax_afoil.axis('scaled')
+            ax_afoil.grid(True)
+            ax_afoil.set_title("2D Aerofoil interpolation")
+            plt.show()
+
+        # Points that are close to TE are set to TE
+        TE_mask = np.all(np.isclose(afoil_coords, [1,0]), axis=1)
+        afoil_coords[TE_mask,:] = [1,0]
+        # move airfoil centre to (0,0)
+        afoil_coords[:,0] = afoil_coords[:,0] - 0.5
+        # add airfoil x coordinates as zero
+        afoil_coords = np.hstack((np.zeros((ncs_pts,1)), afoil_coords))
+
+
+        # interpolate LE, TE, ref_axis, washout on new spanwise grid
+        # x_interp = np.linspace(self.x[0], self.x[-1], ncs)
+        x_interp = cosspace(self.x[0], self.x[-1], n=ncs)
+        LEf = interp1d(self.x, self.LE, axis=0)
+        LE = LEf(x_interp)
+        TEf = interp1d(self.x, self.TE, axis=0)
+        TE = TEf(x_interp)
+        ref_axisf = interp1d(self.x, self.ref_axis, axis=0)
+        ref_axis = ref_axisf(x_interp)
+        washoutf = interp1d(self.x, self.washout_curve, axis=0)
+        washout = washoutf(x_interp)
+        chord = np.linalg.norm(LE - TE, axis=1) # compute chord
+
+        # preallocate
+        vertices = np.empty((0,3))
+        faces = np.empty((0,3))
+
+        # define ID table for grid of face nodes
+        ID_table = np.arange(1, (ncs_pts-1)*(ncs-2)+1).reshape(-1,(ncs_pts-1)).T
+        ID_table = np.vstack((ID_table, ID_table[0,:]))
+        ID_table = np.hstack((np.zeros((ncs_pts,1)), 
+                            ID_table, 
+                            (np.max(ID_table)+1)*np.ones((ncs_pts,1))))
+
+        # loop through cross-sections
+        for i in range(ncs-1):
+
+            # scale afoil coords (afoil is centred on (y,z)=(0,0))
+            coords1 = afoil_coords * chord[i] # afoil at station 1
+            coords2 = afoil_coords * chord[i+1] # afoil at station 2
+
+            # rotate normalised coordinates by washout (rotates about local (0,0))
+            c = np.cos(washout[i:i+2] * np.pi/180)
+            s = np.sin(washout[i:i+2] * np.pi/180)
+            R1 = rotation_matrix([1,0,0], washout[i])
+            R2 = rotation_matrix([1,0,0], washout[i+1])
+            coords1 = apply_rotation(R1, coords1, dim=1)
+            coords2 = apply_rotation(R2, coords2, dim=1)
+            # coords1[:,1] = coords1[:,1] * c[0] - coords1[:,2] * s[0]
+            # coords1[:,2] = coords1[:,1] * s[0] + coords1[:,2] * c[0]
+            # coords2[:,1] = coords2[:,1] * c[1] - coords2[:,2] * s[1]
+            # coords2[:,2] = coords2[:,1] * s[1] + coords2[:,2] * c[1]
+
+            # rotate by anhedral?
+
+            # shift normalised coordinates onto reference axis
+            coords1 = ref_axis[i,:] - coords1
+            coords2 = ref_axis[i+1,:] - coords2
+
+            # rotate by mounting angle (rotates about global (0,0))
+            if mounting_angle != 0:
+                R1 = rotation_matrix([1,0,0], mounting_angle)
+                R2 = rotation_matrix([1,0,0], mounting_angle)
+                coords1 = apply_rotation(R1, coords1, dim=1)
+                coords2 = apply_rotation(R2, coords2, dim=1)
+
+            # add vertices and faces
+            if i == 0 and chord[0] == 0:
+                # start: single point to cross-section
+                vertices = np.vstack((vertices, np.vstack((coords1[0,:], coords2[:-1,:]))))
+                faces = np.vstack((faces, 
+                                np.stack((ID_table[:-1,0], ID_table[:-1,1], ID_table[1:,1]), axis=1)))
+
+            elif i == ncs - 2 and chord[i+1] == 0:
+                # end: cross-section to single point
+                vertices = np.vstack((vertices, coords2[0,:]))
+                faces = np.vstack((faces, np.stack((ID_table[:-1,i], ID_table[:-1,i+1], ID_table[1:,i]), axis=1)))
+
+            elif np.any(chord[i:i+2] != 0):
+                # middle: cross-section to cross-section
+                vertices = np.vstack((vertices, coords2[:-1,:]))
+                faces1 = np.stack((ID_table[:-1,i], ID_table[:-1,i+1], ID_table[1:,i+1]), axis=1)
+                faces2 = np.stack((ID_table[:-1,i], ID_table[1:,i+1], ID_table[1:,i]), axis=1)
+                faces = np.vstack((faces, faces1, faces2))
+        
+        faces = np.fliplr(faces)
+        vertices = vertices*SF
+
+        if plot_flag:
+            # plot triangle surface
+            fig = plt.figure()
+            ax = fig.gca(projection="3d")
+            ax.plot_trisurf(vertices[:,0], vertices[:,1], faces, vertices[:,2])
+            ax.set_xlim3d(-self.span*SF*1.1/2, self.span*SF*1.1/2)
+            ax.set_ylim3d(-self.span*SF*1.1/2, self.span*SF*1.1/2)
+            ax.set_zlim3d(-self.span*SF*1.1/2, self.span*SF*1.1/2)
+
+        # generate stl mesh
+        wing = stl.mesh.Mesh(np.zeros(faces.shape[0], dtype=stl.mesh.Mesh.dtype))
+        for i, f in enumerate(faces):
+            for j in range(3):
+                wing.vectors[i][j] = vertices[int(f[j]),:]
+
+        # Write the mesh to an stl file
+        if '.stl' not in stl_save_name:
+            stl_save_name = stl_save_name + '.stl'
+        print('Saving stl with name:', stl_save_name)
+        wing.save(stl_save_name)
 
 class EllipticalWing(LiftingSurface):
     # This child class is used for verification of the lifting line model

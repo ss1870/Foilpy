@@ -1,0 +1,12 @@
+alabaster==0.7.12
+jax==0.3.10
+matplotlib==3.5.1
+mock==4.0.3
+numpy==1.22.2
+pandas==1.4.2
+scikit_learn==1.0.2
+scipy==1.8.0
+seaborn==0.11.2
+setuptools==61.2.0
+stl==0.0.3
+weather==0.9.1

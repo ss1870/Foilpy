@@ -3,7 +3,7 @@ from source.LL_functions import steady_LL_solve, plot_wake
 from source.classes import EllipticalWing
 import matplotlib.pyplot as plt
 import numpy as np
-%matplotlib widget
+# %matplotlib widget
 
 def test_elliptical_wing():
 

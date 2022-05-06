@@ -49,9 +49,20 @@ def plot_wake(lifting_surfaces, wake_elmt_table, elmtIDs, ax=[]):
 
 
 def eval_biot_savart(xcp0, xnode1, xnode2, gamma, l0, delta_visc=0.025):
-    # xcp: (ncp, 3)
-    # xnode1, xnode2: (1, nvor, 3)
-    # gamma, l0: (nvor,)
+    """
+    This function uses the Biot-Savart law to evaluate the induced velocities
+    at control points (xcp), due to vortex line elements defined by locations xnode1, xnode2, 
+    with strengths gamme and lengths l0. The delta_visc parameter ensures velocity goes 
+    zero at the vortex line.
+    Input shapes:
+    xcp: (ncp, 3)
+    xnode1, xnode2: (1, nvor, 3)
+    gamma, l0: (nvor,)
+    ncp, nvor = number of control points / vortex line elements
+    Returns:
+    u_gamma: (ncp, nvor, 3)
+    """
+
 
     xcp = xcp0.reshape(-1, 1, 3)  # xcp shape (ncp, 1, 3)
     # dim [1] of xcp is broadcast nvor times
@@ -506,3 +517,4 @@ def translation_matrix(t):
                   [0, 0, 1, t[2]],
                   [0, 0, 0, 1]])
     return T
+
