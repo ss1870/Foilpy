@@ -1,10 +1,5 @@
-#%%
-
-# %matplotlib widget
-from matplotlib.pyplot import plot
-from source.classes import LiftingSurface, knts2ms
+from pyfoil.classes import LiftingSurface
 import numpy as np
-# from source.LL_functions import steady_LL_solve, plot_wake
 
 def BSC_810(re, afoil='hq109', nsegs=40, plot_flag=False):
     # AXIS Broad Spectrum Carve (BSC) 810
@@ -75,6 +70,3 @@ def Stab_FR_440(re, nsegs=40, plot_flag=False):
     # assert np.isclose(Stab_FR_440.calc_wing_volume()*1000000, 192.81, rtol=1e-03, atol=1e-03)
     return Stab_FR_440
 
-
-# BSC_810()
-# Stab_FR_440()

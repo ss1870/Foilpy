@@ -123,7 +123,6 @@ print(foil.compute_foil_loads(-u_motion, rho, out[0]))
     # - need to work out a reasonable design Lift force for kiting, then can see what angles would be required to achieve this over a range of speeds
     # - check out ncrit for hydrofoils and how to change this in aeropy
     # - add option for variable relative thickness from root to tip (10 -> 8%?)
-    # - is it possible to output an STL file for the 3D wing geometry?
     # - look into pitch, roll, yaw stability
     # - try parallel for loop on loop through angles?
 

@@ -1,10 +1,10 @@
 
 #%%
 
-from source.classes import LiftingSurface, FoilAssembly, ms2knts, knts2ms
-from source.LL_functions import steady_LL_solve
+from pyfoil.classes import LiftingSurface, FoilAssembly, ms2knts, knts2ms
+from pyfoil.LL_functions import steady_LL_solve
 import numpy as np
-import AXIS_wings 
+import AXIS_wing_definitions as AX_wings
 # %matplotlib widget
 
 u = 5  # flow speed in m/s
@@ -14,10 +14,10 @@ re = u * chord * rho / 0.00126
 print("Reynolds number = ", str(re), "\n")
 
 # Define front wing
-front_wing = AXIS_wings.BSC_810(re, afoil='naca1710', nsegs=40, plot_flag=True)
+front_wing = AX_wings.BSC_810(re, afoil='naca1710', nsegs=40, plot_flag=True)
 
 # Define stabiliser
-stab = AXIS_wings.Stab_FR_440(re, nsegs=40, plot_flag=False)
+stab = AX_wings.Stab_FR_440(re, nsegs=40, plot_flag=False)
 
 # Define mast
 mast = LiftingSurface(rt_chord=130,

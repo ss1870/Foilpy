@@ -4,11 +4,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d, UnivariateSpline, CubicSpline, splprep, splev, pchip_interpolate
 import math
-from source.AeroPy.aeropy.xfoil_module import find_coefficients
-from source.LL_functions import rotation_matrix, translation_matrix, apply_rotation, steady_LL_solve, plot_wake
-# import jax_cosmo as jc
 import csv
 import stl
+from aeropy.xfoil_module import find_coefficients
+from pyfoil.LL_functions import rotation_matrix, translation_matrix, apply_rotation, steady_LL_solve, plot_wake
+# import jax_cosmo as jc
+
 
 
 def ms2knts(velocity):

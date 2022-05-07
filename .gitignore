@@ -1,3 +1,4 @@
 old/
 *__pycache__*
 .vscode
+pyfoil.egg-info
