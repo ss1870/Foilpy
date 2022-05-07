@@ -1,12 +1,12 @@
 from copy import deepcopy
-
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.interpolate import interp1d, UnivariateSpline, CubicSpline, splprep, splev, pchip_interpolate
+import os
 import math
 import csv
 import stl
-from aeropy.xfoil_module import find_coefficients
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.interpolate import interp1d, UnivariateSpline, CubicSpline, splprep, splev, pchip_interpolate
+from pyfoil.myaeropy.xfoil_module import find_coefficients
 from pyfoil.LL_functions import rotation_matrix, translation_matrix, apply_rotation, steady_LL_solve, plot_wake
 # import jax_cosmo as jc
 
@@ -376,6 +376,7 @@ class LiftingSurface:
 
         if afoil != []:
             self.define_aerofoil_geom(plot_flag=plot_flag)
+            # self.compute_afoil_polar(angles=np.linspace(-5, 15, 21), Re=Re, plot_flag=plot_flag)
             try:
                 self.compute_afoil_polar(angles=np.linspace(-5, 15, 21), Re=Re, plot_flag=plot_flag)
             except:
@@ -664,7 +665,7 @@ class LiftingSurface:
 
         self.afoil_rel_thick = np.max(height)
         self.afoil_norm_height = np.stack((x_fine, height), axis=1)
-        # self.afoil_area = np.trapz(height, x_fine)
+        self.afoil_area = np.trapz(height, x_fine)
 
 
         if plot_flag:
@@ -674,10 +675,14 @@ class LiftingSurface:
             plt.show()
 
     def compute_afoil_polar(self, angles, Re, plot_flag=False):
+        dir = "afoil_polars/"
+        if not os.path.isdir(dir):
+            os.mkdir(dir)
+
         if "naca" in self.afoil:
-            coeffs = find_coefficients(airfoil=self.afoil, alpha=angles, Reynolds=Re, iteration=1000, NACA=True)
+            coeffs = find_coefficients(airfoil=self.afoil, alpha=angles, Reynolds=Re, iteration=1000, NACA=True, dir=dir)
         else:
-            coeffs = find_coefficients(airfoil=self.afoil, alpha=angles, Reynolds=Re, iteration=1000, NACA=False, GDES=False)
+            coeffs = find_coefficients(airfoil=self.afoil, alpha=angles, Reynolds=Re, iteration=1000, NACA=False, GDES=False, dir=dir)
 
         self.afoil_polar = np.hstack((np.array(coeffs["alpha"]).reshape(-1, 1),
                                       np.array(coeffs["CL"]).reshape(-1, 1),

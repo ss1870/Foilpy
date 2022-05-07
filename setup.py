@@ -9,5 +9,6 @@ setup(
     author_email='ss1870@my.bristol.ac.uk',
     license='Apache-2.0',
     # packages=find_packages()
-    packages=['pyfoil'],
+    packages=['pyfoil', 'pyfoil.myaeropy'],
+    include_package_data=True
 )

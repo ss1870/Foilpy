@@ -1,5 +1,5 @@
 import numpy as np
-from source.classes import LiftingSurface
+from pyfoil.classes import LiftingSurface
 
 def test_square_wing():
 
@@ -15,4 +15,3 @@ def test_square_wing():
     assert np.isclose(square_wing.calc_proj_wing_area(), 5.0, rtol=1e-03, atol=1e-03)
     assert np.isclose(square_wing.calc_actual_wing_area(), 5.0, rtol=1e-03, atol=1e-03)
     assert np.isclose(square_wing.calc_wing_volume(), 5, rtol=1e-03, atol=1e-03)
-
