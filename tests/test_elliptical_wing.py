@@ -1,6 +1,6 @@
 #%%
-from source.LL_functions import steady_LL_solve, plot_wake
-from source.classes import EllipticalWing
+from pyfoil.LL_functions import steady_LL_solve, plot_wake
+from pyfoil.classes import EllipticalWing
 import matplotlib.pyplot as plt
 import numpy as np
 # %matplotlib widget
@@ -57,12 +57,9 @@ def test_elliptical_wing():
     plt.show()
 
     fig = plt.figure()
-    ax = fig.gca(projection="3d")
+    ax = plt.axes(projection="3d")
     plot_wake(lifting_surface, out[3], out[5], ax=ax)
 
     assert any(np.isclose(cl, cl_theory, rtol=1e-03, atol=1e-03))
 
-
-
-test_elliptical_wing()
 # %%

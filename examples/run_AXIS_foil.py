@@ -5,7 +5,7 @@ from pyfoil.classes import LiftingSurface, FoilAssembly, ms2knts, knts2ms
 from pyfoil.LL_functions import steady_LL_solve
 import numpy as np
 import AXIS_wing_definitions as AX_wings
-# %matplotlib widget
+%matplotlib widget
 
 u = 5  # flow speed in m/s
 chord = 0.2  # characteristic length
@@ -40,18 +40,20 @@ foil = FoilAssembly(front_wing,
                     stabiliser_angle=-2,
                     units='mm')
 
-# lifting_surfaces = foil.surface2dict()
-# u_motion = np.array([[0, knts2ms(15), 0]])
-# out = steady_LL_solve(lifting_surfaces, -u_motion, rho, dt=0.05, nit=30, reflected_wake=True, water_surface=-0.5, wake_rollup=False, variable_time_step=False)
-# print(foil.compute_foil_loads(-u_motion, rho, out[0]))
+lifting_surfaces = foil.surface2dict()
+u_motion = np.array([[0, knts2ms(10), 0]])
+out = steady_LL_solve(lifting_surfaces, -u_motion, rho, dt=0.05, nit=30, reflected_wake=False, wake_rollup=False, variable_time_step=False)
+print(foil.compute_foil_loads(-u_motion, rho, out[0]))
 
-# wake_elmt_table = out[3]
-# elmtIDs = out[5]
+wake_elmt_table = out[3]
+elmtIDs = out[5]
 
-# foil.plot_wake(lifting_surfaces, wake_elmt_table, elmtIDs)
+foil.plot_wake(lifting_surfaces, wake_elmt_table, elmtIDs)
 
 angle = np.linspace(-5,10,4)
 u_motion = np.array([[0, knts2ms(7), 0],
                      [0, knts2ms(10), 0],
                      [0, knts2ms(15), 0]])
 foil.analyse_foil(angle, -u_motion, rho, reflected_wake=False, compare_roll_up=False)
+
+stab.export_wing_2_stl('wing.stl')

@@ -6,7 +6,7 @@ def test_square_wing():
     square_wing = LiftingSurface(rt_chord=1, 
                                  tip_chord=1, 
                                  span=5,  
-                                 afoil='square', 
+                                 afoil='tests/square', 
                                  nsegs=40,
                                  units='m')
 
