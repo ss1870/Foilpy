@@ -6,9 +6,9 @@ import stl
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d, CubicSpline, splprep, splev, pchip_interpolate
-from pyfoil.myaeropy.xfoil_module import find_coefficients
-from pyfoil.LL_functions import rotation_matrix, translation_matrix
-from pyfoil.LL_functions import apply_rotation, steady_LL_solve, plot_wake
+from foilpy.myaeropy.xfoil_module import find_coefficients
+from foilpy.LL_functions import rotation_matrix, translation_matrix
+from foilpy.LL_functions import apply_rotation, steady_LL_solve, plot_wake
 # import jax_cosmo as jc
 
 

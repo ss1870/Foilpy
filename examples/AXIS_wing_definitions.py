@@ -1,4 +1,4 @@
-from pyfoil.classes import LiftingSurface
+from foilpy.classes import LiftingSurface
 import numpy as np
 
 def BSC_810(re, afoil='hq109', nsegs=40, plot_flag=False):
