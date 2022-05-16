@@ -6,3 +6,4 @@ scikit_learn==1.0.2
 scipy==1.8.0
 setuptools==61.2.0
 stl==0.0.3
+pyfoil
