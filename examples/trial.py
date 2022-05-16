@@ -1,8 +1,7 @@
+
 #%%
-# %matplotlib widget
-
 import AXIS_wing_definitions as AX_wings
-
+# %matplotlib widget
 
 
 # wing = AX_wings.BSC_810(813492, afoil='hq109', nsegs=40, plot_flag=True)

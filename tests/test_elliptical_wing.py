@@ -1,6 +1,6 @@
 #%%
-from pyfoil.LL_functions import steady_LL_solve, plot_wake
-from pyfoil.classes import EllipticalWing
+from foilpy.LL_functions import steady_LL_solve, plot_wake
+from foilpy.classes import EllipticalWing
 import matplotlib.pyplot as plt
 import numpy as np
 # %matplotlib widget

@@ -1,4 +1,4 @@
-from pyfoil.LL_functions import eval_biot_savart, update_elmt_length
+from foilpy.LL_functions import eval_biot_savart, update_elmt_length
 import numpy as np
 
 def test_eval_biot_savart():

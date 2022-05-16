@@ -1,7 +1,7 @@
 #%%
 
-from source.classes import LiftingSurface, FoilAssembly, ms2knts, knts2ms
-from source.LL_functions import eval_biot_savart, LL_residual, ini_estimate_gamma, newton_raphson_solver, numerical_jacobian, steady_LL_solve
+from foilpy.classes import LiftingSurface, FoilAssembly, ms2knts, knts2ms
+from foilpy.LL_functions import eval_biot_savart, LL_residual, ini_estimate_gamma, newton_raphson_solver, numerical_jacobian, steady_LL_solve
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy import matlib

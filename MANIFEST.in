@@ -1,1 +1,1 @@
-include pyfoil/myaeropy/xfoil.exe
+include foilpy/myaeropy/xfoil.exe
