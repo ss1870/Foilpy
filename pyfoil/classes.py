@@ -5,20 +5,24 @@ import csv
 import stl
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.interpolate import interp1d, UnivariateSpline, CubicSpline, splprep, splev, pchip_interpolate
+from scipy.interpolate import interp1d, CubicSpline, splprep, splev, pchip_interpolate
 from pyfoil.myaeropy.xfoil_module import find_coefficients
-from pyfoil.LL_functions import rotation_matrix, translation_matrix, apply_rotation, steady_LL_solve, plot_wake
+from pyfoil.LL_functions import rotation_matrix, translation_matrix
+from pyfoil.LL_functions import apply_rotation, steady_LL_solve, plot_wake
 # import jax_cosmo as jc
 
 
 
 def ms2knts(velocity):
+    """Converts m/s to knots."""
     return velocity * 1.943844
 
 def knts2ms(velocity):
+    """Converts knots to m/s."""
     return velocity / 1.943844
 
 def unit_2_meters(val, unit):
+    """Converts length unit to meters."""
     if unit=='mm':
         return val/1000
     elif unit == 'cm':
@@ -26,45 +30,46 @@ def unit_2_meters(val, unit):
     elif unit == 'm':
         return val
 
-def cosspace(d1, d2, n=100, factor=False):
-    # %COSSPACE cosine spaced vector.
-    # %   COSSPACE(X1, X2) generates a row vector of 100 cosine spaced points
-    # %   between X1 and X2. 
-    # %
-    # %   COSSPACE(X1, X2, N) generates N points between X1 and X2.
-    # % 
-    # %   A cosine spaced vector clusters the elements toward the endpoints:
-    # %    X1    || |  |   |    |     |     |    |   |  | ||   X2
-    # % 
-    # %   For negative n, COSSPACE returns an inverse cosine spaced vector with
-    # %   elements sparse toward the endpoints:
-    # %     X1 |     |    |   |  | | | | | |  |   |    |     | X2
-    # % 
-    # %   For -2 < N < 2, COSSPACE returns X2.
-    # % 
-    # %   COSSPACE(X1, X2, N, W) clusters the elements to a lesser degree as
-    # %   dictated by W. W = 0 returns a normal cosine or arccosine spaced
-    # %   vector. W = 1 is the same as LINSPACE(X1, X2, N). Experiment with W < 0
-    # %   and W > 1 for different clustering patterns.
+def cosspace(x_start, x_end, n_pts=100, factor=False):
+    """
+    COSSPACE cosine spaced vector.
+       COSSPACE(X1, X2) generates a row vector of 100 cosine spaced points
+       between X1 and X2.
 
-    if n < 0:
-        n = np.floor(-n)
-        y = d1 + (d2 - d1) / np.pi * np.arccos(1 - 2 * np.arange(0, n) / (n - 1))
+       COSSPACE(X1, X2, n_pts) generates n_pts points between X1 and X2.
+
+       A cosine spaced vector clusters the elements toward the endpoints:
+        X1    || |  |   |    |     |     |    |   |  | ||   X2
+
+       For negative n_pts, COSSPACE returns an inverse cosine spaced vector with
+       elements sparse toward the endpoints:
+         X1 |     |    |   |  | | | | | |  |   |    |     | X2
+
+       For -2 < n_pts < 2, COSSPACE returns X2.
+
+       COSSPACE(X1, X2, n_pts, W) clusters the elements to a lesser degree as
+       dictated by W. W = 0 returns a normal cosine or arccosine spaced
+       vector. W = 1 is the same as LINSPACE(X1, X2, n_pts). Experiment with W < 0
+       and W > 1 for different clustering patterns.
+    """
+    if n_pts < 0:
+        n_pts = np.floor(-n_pts)
+        y = x_start + (x_end - x_start) / np.pi * np.arccos(1 - 2 * np.arange(0, n_pts) / (n_pts - 1))
     else:
-        n = np.floor(n)
-        y = d1 + (d2 - d1) / 2 * (1 - np.cos(np.pi / (n-1) * np.arange(0, n)))
+        n_pts = np.floor(n_pts)
+        y = x_start + (x_end - x_start) / 2 * (1 - np.cos(np.pi / (n_pts-1) * np.arange(0, n_pts)))
 
-    if factor != False:
-        y = (1-factor) * y + factor * np.append(d1 + np.arange(0, n-1) * (d2-d1) / (n-1), d2)
+    if factor is not False:
+        y = (1-factor) * y + factor * np.append(x_start + np.arange(0, n_pts-1) * (x_end-x_start) / (n_pts-1), x_end)
 
-    y[0] = d1 # avoid numerical error
-    y[-1] = d2 # avoid numerical error
+    y[0] = x_start # avoid numerical error
+    y[-1] = x_end # avoid numerical error
     return y
 
 class FoilAssembly:
 
-    def __init__(self, main_wing0, stabiliser0, mast0, fuselage_length, mast_attachment_ratio, wing_angle=0,
-                 stabiliser_angle=0, units='mm'):
+    def __init__(self, main_wing0, stabiliser0, mast0, fuselage_length, mast_attachment_ratio,
+                 wing_angle=0, stabiliser_angle=0, units='mm'):
         self.main_wing0 = main_wing0
         self.stabiliser0 = stabiliser0
         self.mast0 = mast0
@@ -84,7 +89,8 @@ class FoilAssembly:
         # Rotate current wing/mast/stab objects into required foil arrangement
         # Assume origin (coordinate [0,0,0]) is the centre of the top of the mast
         # Mast rotate +90 degree about y axis, then translate mast.span in negative z
-        R_mast = np.dot(translation_matrix([0, 0, -self.mast.span]), rotation_matrix([0, 1, 0], -90))
+        R_mast = np.dot(translation_matrix([0, 0, -self.mast.span]),
+                        rotation_matrix([0, 1, 0], -90))
         self.mast.rotate_component(R_mast)
         # self.mast.plot3D()
         # forces = self.mast.LL_strip_theory_forces(np.array([0,5,0]), 1025)
@@ -191,7 +197,7 @@ class FoilAssembly:
             # self.cog = apply_rotation(R_pitch, self.cog, 0)
 
     def compute_foil_loads(self, u_flow, rho, u_gamma=[]):
-        
+
         u_flow = u_flow.reshape(-1,3)
         if u_gamma == []:
             u_main_wing = u_flow
@@ -210,13 +216,13 @@ class FoilAssembly:
         stab_wing_moment = np.cross((self.stabiliser.xcp-self.cog.reshape(-1,3)), stab_wing_load[:,0:3])
         mast_moment = np.cross((self.mast.xcp - self.cog.reshape(-1, 3)), mast_load[:, 0:3])
 
-        total_load[3:] = total_load[3:] + np.sum(main_wing_moment, axis=0)  + np.sum(stab_wing_moment, axis=0)  + np.sum(mast_moment, axis=0) 
+        total_load[3:] = total_load[3:] + np.sum(main_wing_moment, axis=0) + np.sum(stab_wing_moment, axis=0) + np.sum(mast_moment, axis=0)
         return total_load
 
     def analyse_foil(self, angle, u_flow, rho, reflected_wake=False, wake_rollup=False, compare_strip=False, compare_roll_up=False):
-        
+
         fig, (axL, axD, axM) = plt.subplots(3, 1)
-        
+
         n_angles = angle.shape[0]
         n_speeds = u_flow.shape[0]
         if compare_strip:
@@ -229,8 +235,8 @@ class FoilAssembly:
         for i in range(n_angles): # loop through angles
             # rotate foil to desired angle
             self.rotate_foil_assembly([angle[i], 0, 0])
-            for j in range(n_speeds): # loop through speeds                
-                
+            for j in range(n_speeds): # loop through speeds
+
                 # compute LL forces on foil
                 lifting_surfaces = self.surface2dict()
                 out_LL = steady_LL_solve(lifting_surfaces, u_flow[j,:], rho, dt=0.1, min_dt=1, nit=50, reflected_wake=reflected_wake, wake_rollup=wake_rollup)
@@ -295,33 +301,7 @@ class FoilAssembly:
 
     def surface2dict(self):
         fw = self.main_wing.create_dict()
-        
-        #  {"xcp": self.main_wing.xcp, 
-        #       "dl": self.main_wing.dl, 
-        #       "a1": self.main_wing.a1, 
-        #       "a3": self.main_wing.a3, 
-        #       "dA": self.main_wing.dA, 
-        #       "dl": self.main_wing.dl,
-        #     #   "cl_spl": self.main_wing.cl_spline,
-        #       "cl_tab": self.main_wing.cl_tab,
-        #       "xnode1": np.concatenate([obj.node1.reshape(1, 1, -1) for obj in self.main_wing.BVs], axis=1), # (1, nseg*4, 3)
-        #       "xnode2": np.concatenate([obj.node2.reshape(1, 1, -1) for obj in self.main_wing.BVs], axis=1),
-        #       "TE": self.main_wing.TEv, 
-        #       "l0": np.array([obj.length0 for obj in self.main_wing.BVs])} 
-        
         stab = self.stabiliser.create_dict()
-        # {"xcp": self.stabiliser.xcp, 
-        #         "dl": self.stabiliser.dl, 
-        #         "a1": self.stabiliser.a1, 
-        #         "a3": self.stabiliser.a3, 
-        #         "dA": self.stabiliser.dA, 
-        #         "dl": self.stabiliser.dl,
-        #         # "cl_spl": self.stabiliser.cl_spline,
-        #         "cl_tab": self.stabiliser.cl_tab,
-        #         "xnode1": np.concatenate([obj.node1.reshape(1, 1, -1) for obj in self.stabiliser.BVs], axis=1), # (1, nseg*4, 3)
-        #         "xnode2": np.concatenate([obj.node2.reshape(1, 1, -1) for obj in self.stabiliser.BVs], axis=1),
-        #         "TE": self.stabiliser.TEv, 
-        #         "l0": np.array([obj.length0 for obj in self.stabiliser.BVs])}
         dict = [fw, stab]
         return dict
 
@@ -645,7 +625,7 @@ class LiftingSurface:
             # stack list of numbers
             xy = np.stack((xy), axis=0)
             x = xy[:,0]
-            y = xy[:,1] 
+            y = xy[:,1]
 
         self.afoil_coords = xy
 
@@ -675,14 +655,14 @@ class LiftingSurface:
             plt.show()
 
     def compute_afoil_polar(self, angles, Re, plot_flag=False):
-        dir = "afoil_polars/"
-        if not os.path.isdir(dir):
-            os.mkdir(dir)
+        direc = "afoil_polars/"
+        if not os.path.isdir(direc):
+            os.mkdir(direc)
 
         if "naca" in self.afoil:
-            coeffs = find_coefficients(airfoil=self.afoil, alpha=angles, Reynolds=Re, iteration=1000, NACA=True, dir=dir)
+            coeffs = find_coefficients(airfoil=self.afoil, alpha=angles, Reynolds=Re, iteration=1000, NACA=True, direc=direc)
         else:
-            coeffs = find_coefficients(airfoil=self.afoil, alpha=angles, Reynolds=Re, iteration=1000, NACA=False, GDES=False, dir=dir)
+            coeffs = find_coefficients(airfoil=self.afoil, alpha=angles, Reynolds=Re, iteration=1000, NACA=False, GDES=False, direc=direc)
 
         self.afoil_polar = np.hstack((np.array(coeffs["alpha"]).reshape(-1, 1),
                                       np.array(coeffs["CL"]).reshape(-1, 1),
@@ -786,7 +766,7 @@ class LiftingSurface:
 
         if genBVs:
             # Generate bound vorticity for this wing
-            # BV order: 
+            # BV order:
             # - All four elements from 1st segment, then 2nd, then 3rd, etc...
             # - LL, RHS, TE, LHS (i.e. clockwise round the segment, when looking from above)
             nodes1 = np.zeros((n_segs*4, 3)) # np.vstack((x9, x10, x3, x2))
@@ -828,11 +808,11 @@ class LiftingSurface:
             return np.hstack((force_xyz, moment_xyz))
 
     def create_dict(self):
-        lifting_surface_dict = {"xcp": self.xcp, 
-                                "dl": self.dl, 
-                                "a1": self.a1, 
-                                "a3": self.a3, 
-                                "dA": self.dA, 
+        lifting_surface_dict = {"xcp": self.xcp,
+                                "dl": self.dl,
+                                "a1": self.a1,
+                                "a3": self.a3,
+                                "dA": self.dA,
                                 "dl": self.dl,
                                 #   "cl_spl": self.main_wing.cl_spline,
                                 # "cl_tab": self.cl_tab,
@@ -840,8 +820,8 @@ class LiftingSurface:
                                 "polar_cl": np.tile(self.cl_tab[:,1].reshape(-1,1), (1, len(self.dA))),
                                 "xnode1": np.concatenate([obj.node1.reshape(1, 1, -1) for obj in self.BVs], axis=1), # (1, nseg*4, 3)
                                 "xnode2": np.concatenate([obj.node2.reshape(1, 1, -1) for obj in self.BVs], axis=1),
-                                "TE": self.TEv, 
-                                "l0": np.array([obj.length0 for obj in self.BVs])} 
+                                "TE": self.TEv,
+                                "l0": np.array([obj.length0 for obj in self.BVs])}
         return lifting_surface_dict
 
     def export_wing_2_stl(self, stl_save_name, SF=1000, mounting_angle=0, resolution='low', plot_flag=True):
@@ -854,7 +834,7 @@ class LiftingSurface:
             ncs_pts = 151
         elif resolution == 'low':
             ncs = 21
-            ncs_pts = 25  
+            ncs_pts = 25
 
         # prep and interpolate airfoil on new grid
         # smoothing (pchip) interpolation of afoil on evenly spaced arc-length grid
@@ -886,7 +866,7 @@ class LiftingSurface:
 
         # interpolate LE, TE, ref_axis, washout on new spanwise grid
         # x_interp = np.linspace(self.x[0], self.x[-1], ncs)
-        x_interp = cosspace(self.x[0], self.x[-1], n=ncs)
+        x_interp = cosspace(self.x[0], self.x[-1], n_pts=ncs)
         LEf = interp1d(self.x, self.LE, axis=0)
         LE = LEf(x_interp)
         TEf = interp1d(self.x, self.TE, axis=0)
@@ -904,7 +884,7 @@ class LiftingSurface:
         # define ID table for grid of face nodes
         ID_table = np.arange(1, (ncs_pts-1)*(ncs-2)+1).reshape(-1,(ncs_pts-1)).T
         ID_table = np.vstack((ID_table, ID_table[0,:]))
-        ID_table = np.hstack((np.zeros((ncs_pts,1)), 
+        ID_table = np.hstack((np.zeros((ncs_pts,1)),
                             ID_table, 
                             (np.max(ID_table)+1)*np.ones((ncs_pts,1))))
 

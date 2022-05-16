@@ -10,20 +10,22 @@ from copy import deepcopy
 # from numba import jit
 
 
-def numerical_jacobian(f, x, h=1e-4):
-    J = np1.zeros((len(x), len(x)))
-    for i in range(len(x)):
-        xph = deepcopy(x)
-        xph[i] = x[i] + h
-        xmh = deepcopy(x)
-        xmh[i] = xmh[i] - h
-        J[:,i] = (f(xph) - f(xmh))/2/h
+def numerical_jacobian(func, X, step_size=1e-4):
+    """Uses central finite-difference to compute numerical Jacobian of func."""
+    J = np1.zeros((len(X), len(X)))
+    for i in range(len(X)):
+        xph = deepcopy(X)
+        xph[i] = xph[i] + step_size
+        xmh = deepcopy(X)
+        xmh[i] = xmh[i] - step_size
+        J[:,i] = (func(xph) - func(xmh))/2/step_size
     return J
 
 
-def plot_wake(lifting_surfaces, wake_elmt_table, elmtIDs, ax=[]):
+def plot_wake(lifting_surfaces, wake_elmt_table, elmtIDs, ax=None):
+    """Plots the vortex wake as a grid behind the foil assembly."""
     # loop through all lifting surfaces in the simulation
-    for isurf in range(len(lifting_surfaces)):
+    for isurf, lifting_surf in enumerate(lifting_surfaces):
         x_is = []
         y_is = []
         z_is = []
@@ -39,30 +41,31 @@ def plot_wake(lifting_surfaces, wake_elmt_table, elmtIDs, ax=[]):
         y_is.append(wake_elmt_table[mask,1])
         z_is.append(wake_elmt_table[mask,2])
         # append TE nodes
-        x_is.append(lifting_surfaces[isurf]["TE"][:,0])
-        y_is.append(lifting_surfaces[isurf]["TE"][:,1])
-        z_is.append(lifting_surfaces[isurf]["TE"][:,2])
+        x_is.append(lifting_surf["TE"][:,0])
+        y_is.append(lifting_surf["TE"][:,1])
+        z_is.append(lifting_surf["TE"][:,2])
         # add wireframe of current wake to the plot
-        ax.plot_wireframe(  np.stack((x_is)), 
-                            np.stack((y_is)), 
+        ax.plot_wireframe(  np.stack((x_is)),
+                            np.stack((y_is)),
                             np.stack((z_is)))
 
 
 def eval_biot_savart(xcp0, xnode1, xnode2, gamma, l0, delta_visc=0.025):
     """
     This function uses the Biot-Savart law to evaluate the induced velocities
-    at control points (xcp), due to vortex line elements defined by locations xnode1, xnode2, 
-    with strengths gamme and lengths l0. The delta_visc parameter ensures velocity goes 
+    at control points (xcp), due to vortex line elements defined by locations xnode1, xnode2,
+    with strengths gamma and lengths l0. The delta_visc parameter ensures velocity goes
     zero at the vortex line.
-    Input shapes:
-    xcp: (ncp, 3)
-    xnode1, xnode2: (1, nvor, 3)
-    gamma, l0: (nvor,)
-    ncp, nvor = number of control points / vortex line elements
-    Returns:
-    u_gamma: (ncp, nvor, 3)
-    """
 
+    ncp, nvor = number of control points / vortex line elements
+    Inputs:
+        xcp: (ncp, 3)
+        xnode1, xnode2: (1, nvor, 3)
+        gamma, l0: (nvor,)
+        delta_visc: (1,)
+    Returns
+        u_gamma: (ncp, nvor, 3)
+    """
 
     xcp = xcp0.reshape(-1, 1, 3)  # xcp shape (ncp, 1, 3)
     # dim [1] of xcp is broadcast nvor times
@@ -89,6 +92,9 @@ def eval_biot_savart(xcp0, xnode1, xnode2, gamma, l0, delta_visc=0.025):
 
 
 def ini_estimate_gamma(u_cp, dl, a1, a3, cl_tab, dA, rho):
+    """ 
+    Compute initial estimate of circulation based on strip theory.
+    """
     # compute lift due to strip theory
     dot_ucp_a1 = np.sum(u_cp * a1, axis=1)
     dot_ucp_a3 = np.sum(u_cp * a3, axis=1)

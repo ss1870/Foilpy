@@ -1,14 +1,16 @@
 #%%
-import AXIS_wings 
+import AXIS_wing_definitions as AX_wings
 # %matplotlib widget
 
 # script to trial generation of stl from lifting surface class
 
 # instantiate a stabiliser lifting surface
 re = 5 * 0.2 * 1025 / 0.00126
-stab = AXIS_wings.Stab_FR_440(re, nsegs=40, plot_flag=False)
+stab = AX_wings.Stab_FR_440(re, nsegs=40, plot_flag=False)
+main_wing = AX_wings.BSC_810(re, nsegs=40, plot_flag=True)
 
-stab.export_wing_2_stl('stab_440_high_res', mounting_angle=-2, resolution='high')
+# stab.export_wing_2_stl('stab_440_high_res', mounting_angle=-2, resolution='high')
+main_wing.export_wing_2_stl('main_wing_BSC810_high_res', mounting_angle=-2, resolution='high')
 
 # mounting_angle = -2
 # res = 'high' # 'low'
