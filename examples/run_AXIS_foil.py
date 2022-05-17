@@ -2,8 +2,9 @@
 #%%
 import numpy as np
 import AXIS_wing_definitions as AX_wings
-from foilpy.classes import LiftingSurface, FoilAssembly, knts2ms
+from foilpy.classes import LiftingSurface, FoilAssembly
 from foilpy.LL_functions import steady_LL_solve
+from foilpy.utils import knts2ms
 # %matplotlib widget
 
 U = 5  # flow speed in m/s
