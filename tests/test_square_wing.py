@@ -2,11 +2,14 @@ import numpy as np
 from foilpy.classes import LiftingSurface
 
 def test_square_wing():
-
-    square_wing = LiftingSurface(rt_chord=1, 
-                                 tip_chord=1, 
-                                 span=5,  
-                                 afoil='tests/square', 
+    """
+    This function tests that the wing area, aspect ratio, and volume calculators are
+    producing the expected outputs for a simple square wing.
+    """
+    square_wing = LiftingSurface(rt_chord=1,
+                                 tip_chord=1,
+                                 span=5,
+                                 afoil='tests/square',
                                  nsegs=40,
                                  units='m')
 

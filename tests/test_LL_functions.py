@@ -1,9 +1,11 @@
-from foilpy.LL_functions import eval_biot_savart, update_elmt_length
 import numpy as np
+from foilpy.LL_functions import eval_biot_savart, update_elmt_length
 
 def test_eval_biot_savart():
-    # 1. test u_induced = 0 for any cp lying on the vortex line
-    # 2. 
+    """
+    This function tests that the biot-savart equation produces the expected outputs.
+    1. test u_induced = 0 for any control point lying on the vortex line.
+    """
 
     # generate input arrays
     xcp = np.array([[0,0,0]])
@@ -24,4 +26,3 @@ def test_eval_biot_savart():
                          [0,0,0]])
 
     assert np.all(u_induced == expected)
-
