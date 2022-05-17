@@ -110,7 +110,8 @@ class FoilAssembly:
         self.total_mass = self.mast0.mass + self.main_wing0.mass + self.stabiliser0.mass + fuselage_mass + board_mass + rider_mass
         cog = (self.mast0.mass*self.mast0.cog + self.main_wing0.mass*self.mast0.cog + self.stabiliser0.mass*self.mast0.cog + fuselage_mass*fuselage_cog + board_mass*board_cog + rider_mass*rider_cog)/self.total_mass
         self.cog = cog.reshape(3,1)
-        print("Total mass = ", str(self.total_mass), "\n")
+        print("Total mass (without rider) = ", str(self.total_mass - rider_mass), "\n")
+        print("Total mass (including rider) = ", str(self.total_mass), "\n")
         print("CoG location = ", str(self.cog), "\n")
 
     def rotate_foil_assembly(self, rot_angle):
