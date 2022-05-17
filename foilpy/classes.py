@@ -7,64 +7,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d, CubicSpline, splprep, splev, pchip_interpolate
 from foilpy.myaeropy.xfoil_module import find_coefficients
-from foilpy.LL_functions import rotation_matrix, translation_matrix
-from foilpy.LL_functions import apply_rotation, steady_LL_solve, plot_wake
+from foilpy.LL_functions import steady_LL_solve, plot_wake
+from foilpy.utils import rotation_matrix, translation_matrix, apply_rotation, cosspace
+from foilpy.utils import unit_2_meters, ms2knts
 # import jax_cosmo as jc
 
-
-
-def ms2knts(velocity):
-    """Converts m/s to knots."""
-    return velocity * 1.943844
-
-def knts2ms(velocity):
-    """Converts knots to m/s."""
-    return velocity / 1.943844
-
-def unit_2_meters(val, unit):
-    """Converts length unit to meters."""
-    if unit=='mm':
-        return val/1000
-    elif unit == 'cm':
-        return val/100
-    elif unit == 'm':
-        return val
-
-def cosspace(x_start, x_end, n_pts=100, factor=False):
-    """
-    COSSPACE cosine spaced vector.
-       COSSPACE(X1, X2) generates a row vector of 100 cosine spaced points
-       between X1 and X2.
-
-       COSSPACE(X1, X2, n_pts) generates n_pts points between X1 and X2.
-
-       A cosine spaced vector clusters the elements toward the endpoints:
-        X1    || |  |   |    |     |     |    |   |  | ||   X2
-
-       For negative n_pts, COSSPACE returns an inverse cosine spaced vector with
-       elements sparse toward the endpoints:
-         X1 |     |    |   |  | | | | | |  |   |    |     | X2
-
-       For -2 < n_pts < 2, COSSPACE returns X2.
-
-       COSSPACE(X1, X2, n_pts, W) clusters the elements to a lesser degree as
-       dictated by W. W = 0 returns a normal cosine or arccosine spaced
-       vector. W = 1 is the same as LINSPACE(X1, X2, n_pts). Experiment with W < 0
-       and W > 1 for different clustering patterns.
-    """
-    if n_pts < 0:
-        n_pts = np.floor(-n_pts)
-        y = x_start + (x_end - x_start) / np.pi * np.arccos(1 - 2 * np.arange(0, n_pts) / (n_pts - 1))
-    else:
-        n_pts = np.floor(n_pts)
-        y = x_start + (x_end - x_start) / 2 * (1 - np.cos(np.pi / (n_pts-1) * np.arange(0, n_pts)))
-
-    if factor is not False:
-        y = (1-factor) * y + factor * np.append(x_start + np.arange(0, n_pts-1) * (x_end-x_start) / (n_pts-1), x_end)
-
-    y[0] = x_start # avoid numerical error
-    y[-1] = x_end # avoid numerical error
-    return y
 
 class FoilAssembly:
 
