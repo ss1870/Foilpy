@@ -2,7 +2,7 @@
 #%%
 import numpy as np
 import AXIS_wing_definitions as AX_wings
-from foilpy.classes import LiftingSurface, FoilAssembly
+from foilpy.classes import FoilAssembly
 from foilpy.LL_functions import steady_LL_solve
 from foilpy.utils import knts2ms
 # %matplotlib widget
@@ -14,22 +14,11 @@ RE = U * CHORD * RHO / 0.00126
 print("Reynolds number = ", str(RE), "\n")
 
 # Define front wing
-front_wing = AX_wings.BSC_810(RE, afoil='naca1710', nsegs=40, plot_flag=True)
-
+front_wing = AX_wings.bsc_810(RE, afoil='naca1710', nsegs=40, plot_flag=True)
 # Define stabiliser
-stab = AX_wings.Stab_FR_440(RE, nsegs=40, plot_flag=False)
-
+stab = AX_wings.stab_fr_440(RE, nsegs=40, plot_flag=False)
 # Define mast
-mast = LiftingSurface(rt_chord=130,
-                      tip_chord=130,
-                      span=750,
-                      Re=RE,
-                      type='mast',
-                      afoil='naca0015',
-                      nsegs=4,
-                      units='mm',
-                      plot_flag=False)
-
+mast = AX_wings.mast_75cm(RE, nsegs=8, plot_flag=False)
 # Assemble foil
 foil = FoilAssembly(front_wing,
                     stab,
