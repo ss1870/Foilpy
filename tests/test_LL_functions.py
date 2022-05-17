@@ -26,3 +26,18 @@ def test_eval_biot_savart():
                          [0,0,0]])
 
     assert np.all(u_induced == expected)
+
+# Test auto-diff jacobian
+# u_FV = np.zeros((1,3))
+# f = lambda gamma: LL_residual(gamma, rho, u_BV, u_FV, u_motion, front_wing.dl, front_wing.a1, front_wing.a3, front_wing.cl_spline, front_wing.dA)
+# J1 = numerical_jacobian(f, np.array(gamma_ini), 1e-4)
+# print(J1)
+# print(J1.shape)
+# print(J-J1)
+# print(np.max(J - J1))
+
+## Test root finding algo with numerical derivative
+# u_FV = np.zeros((1,3))
+# f = lambda gamma: LL_residual(gamma, rho, u_BV, u_FV, u_motion, front_wing.dl, front_wing.a1, front_wing.a3, front_wing.cl_spline, front_wing.dA)
+# J1 = lambda gamma: numerical_jacobian(f, np.array(gamma), 1e-4)
+# gamma_root, res = newton_raphson_solver(f, J1, np.array(gamma_ini), nit=10)
