@@ -1,9 +1,11 @@
-from foilpy.LL_functions import eval_biot_savart, update_elmt_length
 import numpy as np
+from foilpy.LL_functions import eval_biot_savart, update_elmt_length
 
 def test_eval_biot_savart():
-    # 1. test u_induced = 0 for any cp lying on the vortex line
-    # 2. 
+    """
+    This function tests that the biot-savart equation produces the expected outputs.
+    1. test u_induced = 0 for any control point lying on the vortex line.
+    """
 
     # generate input arrays
     xcp = np.array([[0,0,0]])
@@ -25,3 +27,17 @@ def test_eval_biot_savart():
 
     assert np.all(u_induced == expected)
 
+# Test auto-diff jacobian
+# u_FV = np.zeros((1,3))
+# f = lambda gamma: LL_residual(gamma, rho, u_BV, u_FV, u_motion, front_wing.dl, front_wing.a1, front_wing.a3, front_wing.cl_spline, front_wing.dA)
+# J1 = numerical_jacobian(f, np.array(gamma_ini), 1e-4)
+# print(J1)
+# print(J1.shape)
+# print(J-J1)
+# print(np.max(J - J1))
+
+## Test root finding algo with numerical derivative
+# u_FV = np.zeros((1,3))
+# f = lambda gamma: LL_residual(gamma, rho, u_BV, u_FV, u_motion, front_wing.dl, front_wing.a1, front_wing.a3, front_wing.cl_spline, front_wing.dA)
+# J1 = lambda gamma: numerical_jacobian(f, np.array(gamma), 1e-4)
+# gamma_root, res = newton_raphson_solver(f, J1, np.array(gamma_ini), nit=10)

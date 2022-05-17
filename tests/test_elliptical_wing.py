@@ -1,11 +1,15 @@
 #%%
-from foilpy.LL_functions import steady_LL_solve, plot_wake
-from foilpy.classes import EllipticalWing
 import matplotlib.pyplot as plt
 import numpy as np
+from foilpy.LL_functions import steady_LL_solve, plot_wake
+from foilpy.classes import EllipticalWing
 # %matplotlib widget
 
 def test_elliptical_wing():
+    """
+    This function tests that the theoretical lift coefficient of an elliptical wing
+    is predicted correctly.
+    """
 
     rho = 1.225
 
@@ -17,7 +21,7 @@ def test_elliptical_wing():
     # EllipticalWing is a child class of LiftingSurface
     elliptical_wing = EllipticalWing(rt_chord=c_root,
                                      span=span_b,
-                                     Re=1, 
+                                     Re=1,
                                      afoil_name=[],
                                      nsegs=40,
                                      units='m')
@@ -27,7 +31,7 @@ def test_elliptical_wing():
 
     # check plot looks OK
     elliptical_wing.plot2D()
-    
+
     # assemble input dictionaries
     lifting_surface = [elliptical_wing.create_dict()]
 
@@ -46,7 +50,7 @@ def test_elliptical_wing():
     alpha_theory = np.arctan(0.1/1)
     AR = span_b ** 2 /(np.pi * span_b * c_root / 4)
     cl_theory = 2*np.pi/(1 + 2/AR)*alpha_theory
-    
+
     fig = plt.figure()
     plt.plot(elliptical_wing.xcp[:,0], cl, 'k-')
     plt.plot([-span_b/2, span_b/2], [cl_theory, cl_theory])
