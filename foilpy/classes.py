@@ -774,15 +774,33 @@ class LiftingSurface:
 
     def export_wing_2_stl(self, stl_save_name, SF=1000, mounting_angle=0, resolution='low', plot_flag=True):
 
+        # determine point spacing based on resolution request
+
+        # compute arc length around root chord
+        _, indx = np.unique(self.afoil_coords, return_index=True, axis=0)
+        afoil_coords_root = self.afoil_coords[np.sort(indx),:] * self.rt_chord
+        s_coord_root = np.append(0, np.cumsum(np.sqrt(np.sum(np.diff(afoil_coords_root, axis=0) ** 2, axis=1))))
+        arc_length_root = s_coord_root[-1]
+        
         if resolution == 'high':
-            ncs = 201
-            ncs_pts = 251
+            spanwise_spacing = 0.0022   # 201 pts on stab440
+            cs_spacing = 0.00073        # 251 cs pts on stab440
         elif resolution == 'medium':
-            ncs = 101
-            ncs_pts = 151
+            spanwise_spacing = 0.0044   # 101 pts on stab440
+            cs_spacing = 0.0012         # 151 cs pts on stab440
         elif resolution == 'low':
-            ncs = 21
-            ncs_pts = 25
+            spanwise_spacing = 0.021    # 21 pts on stab440
+            cs_spacing = 0.0073         # 25 cs pts on stab440
+
+        ncs_pts = int(arc_length_root / cs_spacing)
+        if (ncs_pts % 2) == 0:
+            ncs_pts += 1 # if even, add 1
+        
+        ncs = int(self.span / spanwise_spacing)
+        if (ncs % 2) == 0:
+            ncs += 1 # if even, add 1
+        print('Number of cross-sectional points = ', str(ncs_pts))
+        print('Number of spanwise points = ', str(ncs))
 
         # prep and interpolate airfoil on new grid
         # smoothing (pchip) interpolation of afoil on evenly spaced arc-length grid
@@ -810,7 +828,7 @@ class LiftingSurface:
         afoil_coords[:,0] = afoil_coords[:,0] - 0.5
         # add airfoil x coordinates as zero
         afoil_coords = np.hstack((np.zeros((ncs_pts,1)), afoil_coords))
-
+        afoil_coords[:,1] = - afoil_coords[:,1] # flip y axis so LE is +ve 0.5 in y
 
         # interpolate LE, TE, ref_axis, washout on new spanwise grid
         # x_interp = np.linspace(self.x[0], self.x[-1], ncs)
@@ -844,22 +862,16 @@ class LiftingSurface:
             coords2 = afoil_coords * chord[i+1] # afoil at station 2
 
             # rotate normalised coordinates by washout (rotates about local (0,0))
-            c = np.cos(washout[i:i+2] * np.pi/180)
-            s = np.sin(washout[i:i+2] * np.pi/180)
             R1 = rotation_matrix([1,0,0], washout[i])
             R2 = rotation_matrix([1,0,0], washout[i+1])
             coords1 = apply_rotation(R1, coords1, dim=1)
             coords2 = apply_rotation(R2, coords2, dim=1)
-            # coords1[:,1] = coords1[:,1] * c[0] - coords1[:,2] * s[0]
-            # coords1[:,2] = coords1[:,1] * s[0] + coords1[:,2] * c[0]
-            # coords2[:,1] = coords2[:,1] * c[1] - coords2[:,2] * s[1]
-            # coords2[:,2] = coords2[:,1] * s[1] + coords2[:,2] * c[1]
 
             # rotate by anhedral?
 
             # shift normalised coordinates onto reference axis
-            coords1 = ref_axis[i,:] - coords1
-            coords2 = ref_axis[i+1,:] - coords2
+            coords1 = ref_axis[i,:] + coords1
+            coords2 = ref_axis[i+1,:] + coords2
 
             # rotate by mounting angle (rotates about global (0,0))
             if mounting_angle != 0:
@@ -887,7 +899,6 @@ class LiftingSurface:
                 faces2 = np.stack((ID_table[:-1,i], ID_table[1:,i+1], ID_table[1:,i]), axis=1)
                 faces = np.vstack((faces, faces1, faces2))
         
-        faces = np.fliplr(faces)
         vertices = vertices*SF
 
         if plot_flag:
