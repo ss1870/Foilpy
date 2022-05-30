@@ -297,7 +297,7 @@ class LiftingSurface:
         self.aerofoil_naca = []
 
         if spline_pts != []:
-            self.generate_coords_spline(spline_pts, npts=1000)
+            self.generate_coords_spline(spline_pts, npts=1000, plot_flag=plot_flag)
         elif spline_pts == [] and tip_chord != []:
             self.generate_coords_simple(npts=1001)
         else:
@@ -352,7 +352,7 @@ class LiftingSurface:
 
         self.qu_chord_loc = 0.75 * self.LE + 0.25 * self.TE
 
-    def generate_coords_spline(self, spline_pts, plot_flag=False, npts=1000):
+    def generate_coords_spline(self, spline_pts, plot_spline=False, plot_flag=False, npts=1000):
         x = spline_pts[:,0]
         x = np.concatenate((x[:-1], 
                             np.flip(x[1:]),
@@ -370,7 +370,7 @@ class LiftingSurface:
         x_new, y_new = splev(u_new, tck, der=0)
         
 
-        if plot_flag:
+        if plot_spline:
             fig, ax = plt.subplots()
             ax.plot(pts[:,0], pts[:,1], 'ro')
             ax.plot(x_new, y_new, 'b-')
@@ -417,6 +417,16 @@ class LiftingSurface:
         self.qu_chord_loc = 0.75 * self.LE + 0.25 * self.TE
 
         if plot_flag:
+            fig, ax = plt.subplots()
+            ax.plot(self.x, self.washout_curve)
+            # ax.axis('scaled')
+            ax.grid(True)
+            ax.set_ylim(-5,5)
+            ax.set_xlabel("Span")
+            ax.set_ylabel("Washout (deg)")
+            plt.show()
+
+        if plot_spline:
             self.calc_AR()
 
     def plot2D(self):
@@ -849,9 +859,10 @@ class LiftingSurface:
         # determine point spacing based on resolution request
 
         # compute arc length around root chord
-        _, indx = np.unique(self.afoil_coords, return_index=True, axis=0)
-        afoil_coords_root = self.afoil_coords[np.sort(indx),:] * self.rt_chord
-        s_coord_root = np.append(0, np.cumsum(np.sqrt(np.sum(np.diff(afoil_coords_root, axis=0) ** 2, axis=1))))
+        afoil_coords_cntr = self.afoil_table[self.afoil[0][0]]["coords"]
+        _, indx = np.unique(afoil_coords_cntr, return_index=True, axis=0)
+        afoil_coords_cntr = afoil_coords_cntr[np.sort(indx),:] * self.rt_chord
+        s_coord_root = np.append(0, np.cumsum(np.sqrt(np.sum(np.diff(afoil_coords_cntr, axis=0) ** 2, axis=1))))
         arc_length_root = s_coord_root[-1]
         
         if resolution == 'high':
@@ -874,35 +885,48 @@ class LiftingSurface:
         print('Number of cross-sectional points = ', str(ncs_pts))
         print('Number of spanwise points = ', str(ncs))
 
-        # prep and interpolate airfoil on new grid
-        # smoothing (pchip) interpolation of afoil on evenly spaced arc-length grid
-        afoil_coords_in, indx = np.unique(self.afoil_coords, return_index=True, axis=0)
-        afoil_coords_in = self.afoil_coords[np.sort(indx),:]
-        s_coord = np.append(0, np.cumsum(np.sqrt(np.sum(np.diff(afoil_coords_in, axis=0) ** 2, axis=1))))
-        new_s_grid = np.linspace(s_coord[0], s_coord[-1], ncs_pts)
-        # new_s_grid = cosspace(s_coord[0], s_coord[-1], n=-ncs_pts, factor=0.5)
-        afoil_coords = pchip_interpolate(s_coord, afoil_coords_in, new_s_grid)
-
         if plot_flag:
             fig, ax_afoil = plt.subplots()
-            ax_afoil.plot(afoil_coords_in[:,0], afoil_coords_in[:,1], 'r-', label ='Input')
-            ax_afoil.plot(afoil_coords[:,0], afoil_coords[:,1], 'b-', marker=None, label ='Interpolated')
+        afoil_coords = np.zeros((ncs_pts, 3, len(self.afoil_table)))
+        # loop through and pre-process afoils 
+        for i, afoil in enumerate(self.afoil_table):
+            # prep and interpolate airfoil on new grid
+            # smoothing (pchip) interpolation of afoil on evenly spaced arc-length grid
+            afoil_coords_in = self.afoil_table[afoil]["coords"]
+            _, indx = np.unique(afoil_coords_in, return_index=True, axis=0)
+            afoil_coords_in = afoil_coords_in[np.sort(indx),:]
+            s_coord = np.append(0, np.cumsum(np.sqrt(np.sum(np.diff(afoil_coords_in, axis=0) ** 2, axis=1))))
+            new_s_grid = np.linspace(s_coord[0], s_coord[-1], ncs_pts)
+            # new_s_grid = cosspace(s_coord[0], s_coord[-1], n=-ncs_pts, factor=0.5)
+            afoil_coords[:,1:,i] = pchip_interpolate(s_coord, afoil_coords_in, new_s_grid)
+
+            if plot_flag:
+                ax_afoil.plot(afoil_coords_in[:,0], afoil_coords_in[:,1], 'r-', label='Input')
+                ax_afoil.plot(afoil_coords[:,1,i], afoil_coords[:,2,i], 'b-', marker=None, label='Interpolated')
+
+            # Points that are close to TE are set to TE
+            TE_mask = np.all(np.isclose(afoil_coords[:,:,i], [0,1,0]), axis=1)
+            afoil_coords[TE_mask,:,i] = [0,1,0]
+            # move airfoil centre to (0,0)
+            afoil_coords[:,1,i] = afoil_coords[:,1,i] - 0.5
+            # flip y axis so LE is +ve 0.5 in y
+            afoil_coords[:,1,i] = - afoil_coords[:,1,i]
+
+        if plot_flag:
             ax_afoil.legend()
             ax_afoil.axis('scaled')
             ax_afoil.grid(True)
             ax_afoil.set_title("2D Aerofoil interpolation")
             plt.show()
 
-        # Points that are close to TE are set to TE
-        TE_mask = np.all(np.isclose(afoil_coords, [1,0]), axis=1)
-        afoil_coords[TE_mask,:] = [1,0]
-        # move airfoil centre to (0,0)
-        afoil_coords[:,0] = afoil_coords[:,0] - 0.5
-        # add airfoil x coordinates as zero
-        afoil_coords = np.hstack((np.zeros((ncs_pts,1)), afoil_coords))
-        afoil_coords[:,1] = - afoil_coords[:,1] # flip y axis so LE is +ve 0.5 in y
+        # create afoil interpolator
+        if len(self.afoil_table) > 1:
+            rel_thick = [self.afoil_table[afoil]['rel_thick'] for afoil in self.afoil_table]
+            afoil_coords_interpolator = interp1d(rel_thick, afoil_coords)
+        else:
+            afoil_coords_interpolator = lambda x: np.squeeze(afoil_coords)
 
-        # interpolate LE, TE, ref_axis, washout on new spanwise grid
+        # interpolate LE, TE, ref_axis, t2c, washout on new spanwise grid
         # x_interp = np.linspace(self.x[0], self.x[-1], ncs)
         x_interp = cosspace(self.x[0], self.x[-1], n_pts=ncs)
         LEf = interp1d(self.x, self.LE, axis=0)
@@ -911,6 +935,8 @@ class LiftingSurface:
         TE = TEf(x_interp)
         ref_axisf = interp1d(self.x, self.ref_axis, axis=0)
         ref_axis = ref_axisf(x_interp)
+        t2cf = interp1d(self.x, self.t2c_distribution, axis=0)
+        t2c = t2cf(x_interp)
         washoutf = interp1d(self.x, self.washout_curve, axis=0)
         washout = washoutf(x_interp)
         chord = np.linalg.norm(LE - TE, axis=1) # compute chord
@@ -930,8 +956,10 @@ class LiftingSurface:
         for i in range(ncs-1):
 
             # scale afoil coords (afoil is centred on (y,z)=(0,0))
-            coords1 = afoil_coords * chord[i] # afoil at station 1
-            coords2 = afoil_coords * chord[i+1] # afoil at station 2
+            coords1 = afoil_coords_interpolator(t2c[i])
+            coords2 = afoil_coords_interpolator(t2c[i+1])
+            coords1 = coords1 * chord[i] # afoil at station 1
+            coords2 = coords2 * chord[i+1] # afoil at station 2
 
             # rotate normalised coordinates by washout (rotates about local (0,0))
             R1 = rotation_matrix([1,0,0], washout[i])

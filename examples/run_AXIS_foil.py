@@ -5,7 +5,7 @@ import AXIS_wing_definitions as AX_wings
 from foilpy.classes import FoilAssembly
 from foilpy.LL_functions import steady_LL_solve
 from foilpy.utils import knts2ms
-%matplotlib widget
+# %matplotlib widget
 
 U = 5  # flow speed in m/s
 CHORD = 0.2  # characteristic length

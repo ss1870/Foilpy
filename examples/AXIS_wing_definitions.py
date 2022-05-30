@@ -20,16 +20,16 @@ def bsc_810(re, nsegs=40, plot_flag=False):
                     [0.98,0.08,     0.36],
                     [1,   0.12,    0.12]])
 
-    afoil = [['naca2215', 0],
-            ['naca2215', (0.055/2)/(span/2)],
-            ['naca1712', (0.15/2)/(span/2)],
+    afoil = [['naca1214', 0],
+            ['naca1214', (0.055/2)/(span/2)],
+            ['naca1712', (0.4/2)/(span/2)],
             ['naca1712', 1]]
 
     bsc_810 = LiftingSurface(rt_chord=max_chrd,
                                 spline_pts=coords,
                                 span=span,
                                 Re=re,
-                                dih_tip=-0.03,
+                                dih_tip=-0.02,
                                 dih_curve=2,
                                 washout_tip=-3,
                                 washout_curve=4,
