@@ -705,7 +705,7 @@ class LiftingSurface:
         chord_elmt_ctr = np.linalg.norm(LE_elmt_ctr - TE_elmt_ctr, axis=1)
         dX = (self.LE[1:, 0] - self.LE[0:-1, 0])
 
-        cl = np.stack([spline.__call__(alpha_cp[i] * 180 / np.pi) for i, spline in enumerate(self.cl_splines)])
+        cl = np.stack([spline.__call__(aoa[i] * 180 / np.pi) for i, spline in enumerate(self.cl_splines)])
         # Simple flat plate lift coefficient 2*pi*aoa
         # cl = 2.0 * math.pi * aoa * math.pi / 180.0
 
