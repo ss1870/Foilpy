@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.interpolate import pchip_interpolate, CubicSpline, Akima1DInterpolator
 
 def ms2knts(velocity):
     """Converts m/s to knots."""
@@ -103,3 +104,27 @@ def translation_matrix(trans_vec):
                             [0, 0, 1, trans_vec[2]],
                             [0, 0, 0, 1]])
     return translation
+
+def interp_cps(x_query, cp_locs, cps, interp_type):
+    """
+    Function to interpolate a set of control points (cps),
+    defined at locations (cp_locs), over a new distribution (x_query).
+    """
+    lhs = np.flipud(np.stack((-cp_locs, cps), axis=1))
+    rhs = np.stack((cp_locs, cps), axis=1)
+
+    all_cps = np.unique(np.vstack((lhs, rhs)), axis=0)
+
+    if interp_type == 'pchip':
+        out = pchip_interpolate(all_cps[:,0],
+                                all_cps[:,1],
+                                x_query)
+    elif interp_type == 'spline':
+        interpolator = CubicSpline(all_cps[:,0],
+                                    all_cps[:,1])
+        out = interpolator(x_query)
+    elif interp_type == 'akima':
+        interpolator = Akima1DInterpolator(all_cps[:,0],
+                                            all_cps[:,1])
+        out = interpolator(x_query)
+    return out

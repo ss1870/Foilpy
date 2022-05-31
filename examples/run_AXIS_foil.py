@@ -14,7 +14,7 @@ RE = U * CHORD * RHO / 0.00126
 print("Reynolds number = ", str(RE), "\n")
 
 # Define front wing
-front_wing = AX_wings.bsc_810(RE, afoil='naca1710', nsegs=40, plot_flag=True)
+front_wing = AX_wings.bsc_810(RE, nsegs=40, plot_flag=True)
 # Define stabiliser
 stab = AX_wings.stab_fr_440(RE, nsegs=40, plot_flag=False)
 # Define mast
@@ -47,4 +47,4 @@ u_motion = np.array([[0, knts2ms(7), 0],
                      [0, knts2ms(15), 0]])
 foil.analyse_foil(angle, -u_motion, RHO, reflected_wake=False, compare_roll_up=False)
 
-stab.export_wing_2_stl('wing.stl')
+# stab.export_wing_2_stl('wing.stl')

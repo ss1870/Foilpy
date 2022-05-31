@@ -1,30 +1,26 @@
-# To-do:
-#  - Considerations:
-    # - modelling the wing tips accurately and cleanly is important. Be careful with interpolation schemes, and 
-    # how well the segment discretisation matches the intended geometry.
-    # - at 5 and 10 kts, wake roll up seems to make negligible difference to overall loads
-        # - Uncertain whether roll up would affect stability
-    # - wake reflection doesn't seem to make too much difference either
+To-do:
+- Considerations:
+    - modelling the wing tips accurately and cleanly is important. Be careful with interpolation schemes, and 
+    how well the segment discretisation matches the intended geometry.
+    - at 5 and 10 kts, wake roll up seems to make negligible difference to overall loads
+        - Uncertain whether roll up would affect stability
+    - wake reflection doesn't seem to make too much difference either
 
-# - Tests:
-    # - write test to check jax auto diff of residual is working
-    # - write test of root finding algorithm wth analytical function?
-    # - finish elliptical wing test, are there any other things I can test from that?
-        # - Get auto test in github?
+- Tests:
+    - write test to check jax auto diff of residual is working
+    - write test of root finding algorithm wth analytical function?
+    - finish elliptical wing test, are there any other things I can test from that?
+        - Get auto test in github?
 
-# - Coding:
-    # - implement different method for inputting wing geometry
-        # - try and mimic some of the AXIS foils
-        # - do some investigations around aerofoil profiles and typical afoil thicknesses. How much effect on loads do these have for the AXIS profiles?
-        # - Given an AXIS-recommended setup - do the loads look sensible?
-    # - need to work out a reasonable design Lift force for kiting, then can see what angles would be required to achieve this over a range of speeds
-    # - check out ncrit for hydrofoils and how to change this in aeropy
-    # - add option for variable relative thickness from root to tip (10 -> 8%?)
-    # - look into pitch, roll, yaw stability
-    # - try parallel for loop on loop through angles?
+- Coding:
+    - Specify planform using spline for chord and some sweep kinda parameter i.e. mid chord, LE or TE.
+	- Try optimise planform for constant lift at specified AoA/speed, and minimum drag?
+    - look into pitch, roll, yaw stability
+    - try parallel for loop on loop through angles?
 
 
-# - Unanswered questions:
-    # - does large dt make for lower accuracy?
-    # - should ommitting shed vortex elements result in same answer?
+- Unanswered questions:
+    - does large dt make for lower accuracy?
+    - should ommitting shed vortex elements result in same answer?
+    - steady solve: can I just do a single solve for bound and infinitely long trailing vorticity?
 

@@ -6,7 +6,7 @@ These are by no means accurate or representative.
 import numpy as np
 from foilpy.classes import LiftingSurface
 
-def bsc_810(re, afoil='hq109', nsegs=40, plot_flag=False):
+def bsc_810(re, nsegs=40, plot_flag=False):
     """
     AXIS Broad Spectrum Carve (BSC) 810
     """
@@ -19,11 +19,18 @@ def bsc_810(re, afoil='hq109', nsegs=40, plot_flag=False):
                     [0.9, 0.03,    0.53],
                     [0.98,0.08,     0.36],
                     [1,   0.12,    0.12]])
+
+    afoil = [['naca1214', 0],
+            ['naca1214', (0.055/2)/(span/2)],
+            ['naca1712', (0.4/2)/(span/2)],
+            ['naca1712', 1]]
+
     bsc_810 = LiftingSurface(rt_chord=max_chrd,
                                 spline_pts=coords,
                                 span=span,
                                 Re=re,
-                                dih_tip=-0.03,
+                                Ncrit=4,
+                                dih_tip=-0.02,
                                 dih_curve=2,
                                 washout_tip=-3,
                                 washout_curve=4,
@@ -35,8 +42,10 @@ def bsc_810(re, afoil='hq109', nsegs=40, plot_flag=False):
     if plot_flag:
         bsc_810.plot2D()
         bsc_810.plot3D()
+        bsc_810.calc_wing_volume()
 
     # assert following
+    
     assert np.isclose(bsc_810.calc_AR(), 6.42, rtol=1e-03, atol=1e-03)
     assert np.isclose(bsc_810.calc_proj_wing_area()*10000, 1022, rtol=1e-03, atol=1e-03)
     # assert np.isclose(bsc_810.calc_actual_wing_area()*10000, 1070, rtol=1e-03, atol=1e-03)
@@ -50,7 +59,8 @@ def stab_fr_440(re, nsegs=40, plot_flag=False):
     span = 0.440
     max_chrd = 0.090
 
-    afoil = 'naca0012' # this has around 9/10% thickness hq109
+    afoil = [['naca0012', 0],
+             ['naca0012', 1]]
     # probably has 1-3 degrees of nose-down washout (means root stalls earlier than tip)
     coords = np.array([[0,  0,     1],
                     [0.35,  0.00,   0.92],
@@ -61,6 +71,7 @@ def stab_fr_440(re, nsegs=40, plot_flag=False):
                                 spline_pts=coords,
                                 span=span,
                                 Re=re,
+                                Ncrit=4,
                                 dih_tip=0.02,
                                 dih_curve=8,
                                 afoil=afoil,
@@ -86,11 +97,13 @@ def mast_75cm(re, nsegs=8, plot_flag=False):
     span = 0.75
     chord = 0.13
 
-    afoil = 'naca0015' # 19mm + 130mm chord ~15% thickness
+    afoil = [['naca0015', 0],
+             ['naca0015', 1]] # 19mm + 130mm chord ~15% thickness
     mast_75cm = LiftingSurface(rt_chord=chord,
                           tip_chord=chord,
                           span=span,
                           Re=re,
+                          Ncrit=4,
                           type='mast',
                           afoil=afoil,
                           nsegs=nsegs,

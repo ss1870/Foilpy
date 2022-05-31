@@ -22,7 +22,6 @@ def test_elliptical_wing():
     elliptical_wing = EllipticalWing(rt_chord=c_root,
                                      span=span_b,
                                      Re=1,
-                                     afoil_name=[],
                                      nsegs=40,
                                      units='m')
 
@@ -37,7 +36,7 @@ def test_elliptical_wing():
 
     # do steady lifting line solve
     min_dt = c_root/np.linalg.norm(u_flow)
-    out = steady_LL_solve(lifting_surface, u_flow, rho, dt=0.5, min_dt=min_dt, wake_rollup=False, include_shed_vorticity=True, nit=20, delta_visc=0.025)
+    out = steady_LL_solve(lifting_surface, u_flow, rho, dt=0.5, min_dt=min_dt, wake_rollup=False, include_shed_vorticity=True, nit=50, delta_visc=0.0)
     u_gamma = out[0]
 
     # compute lift coefficient given steady vortex solve
@@ -65,5 +64,6 @@ def test_elliptical_wing():
     plot_wake(lifting_surface, out[3], out[5], ax=ax)
 
     assert any(np.isclose(cl, cl_theory, rtol=1e-03, atol=1e-03))
+
 
 # %%
