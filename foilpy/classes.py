@@ -15,7 +15,11 @@ from foilpy.utils import unit_2_meters, ms2knts
 
 
 class FoilAssembly:
-
+    """
+    This class assembles the components of the foil into a foil assembly.
+    Methods then allow operations to be performed on the foil such as
+    Rotation, Lifting line analysis.
+    """
     def __init__(self, main_wing0, stabiliser0, mast0, fuselage_length, mast_attachment_ratio,
                  wing_angle=0, stabiliser_angle=0, units='mm'):
         self.main_wing0 = main_wing0
@@ -272,7 +276,7 @@ class LiftingSurface:
     def __init__(self, rt_chord, span, Re=[], spline_pts=[], tip_chord=[], 
                  sweep_tip=0, sweep_curve=0, dih_tip=0, dih_curve=0,
                  washout_tip=0, washout_curve=0, afoil=[], afoil_path=[], 
-                 Ncrit=9, type='wing', nsegs=50, units='mm', plot_flag=True):
+                 Ncrit=4, type='wing', nsegs=50, units='mm', plot_flag=True):
 
         self.rt_chord = unit_2_meters(rt_chord, units)
         self.tip_chord = unit_2_meters(tip_chord, units)
