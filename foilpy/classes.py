@@ -269,8 +269,10 @@ class FoilAssembly:
 
 class LiftingSurface:
 
-    def __init__(self, rt_chord, span, Re=[], spline_pts=[], tip_chord=[], sweep_tip=0, sweep_curve=0, dih_tip=0, dih_curve=0,
-                 washout_tip=0, washout_curve=0, afoil=[], afoil_path=[], type='wing', nsegs=50, units='mm', plot_flag=True):
+    def __init__(self, rt_chord, span, Re=[], spline_pts=[], tip_chord=[], 
+                 sweep_tip=0, sweep_curve=0, dih_tip=0, dih_curve=0,
+                 washout_tip=0, washout_curve=0, afoil=[], afoil_path=[], 
+                 Ncrit=9, type='wing', nsegs=50, units='mm', plot_flag=True):
 
         self.rt_chord = unit_2_meters(rt_chord, units)
         self.tip_chord = unit_2_meters(tip_chord, units)
@@ -308,7 +310,7 @@ class LiftingSurface:
             self.define_aerofoil_geom(plot_flag=plot_flag)
             # self.compute_afoil_polar(angles=np.linspace(-5, 15, 21), Re=Re, plot_flag=plot_flag)
             try:
-                self.compute_afoil_polar(angles=np.linspace(-5, 15, 21), Re=Re, plot_flag=plot_flag)
+                self.compute_afoil_polar(angles=np.linspace(-5, 15, 21), Re=Re, Ncrit=Ncrit, plot_flag=plot_flag)
                 self.polars_exist = True
             except:
                 print("Aerofoil polar calculation failed.")
@@ -656,7 +658,7 @@ class LiftingSurface:
             self.afoil_interpolator = lambda x: np.repeat(xy.reshape(-1,2,1), len(x), axis=2)
             self.afoil_height_interpolator = lambda x: np.repeat(np.stack((x_fine, height), axis=1).reshape(-1,2,1), len(x), axis=2)
 
-    def compute_afoil_polar(self, angles, Re, plot_flag=False):
+    def compute_afoil_polar(self, angles, Re, Ncrit, plot_flag=False):
         direc = "afoil_polars/"
         if not os.path.isdir(direc):
             os.mkdir(direc)
@@ -669,10 +671,10 @@ class LiftingSurface:
         for i, afoil in enumerate(self.afoil_table):
             # if afoil is naca, then xfoil doesn't need coordinates
             if "naca" in afoil:
-                coeffs = find_coefficients(airfoil=afoil, alpha=angles, Reynolds=Re, iteration=1000, NACA=True, direc=direc)
+                coeffs = find_coefficients(airfoil=afoil, alpha=angles, Reynolds=Re, Ncrit=Ncrit, iteration=1000, NACA=True, direc=direc)
             else: 
                 # use coordinates in given file - not really sure this is working right now...
-                coeffs = find_coefficients(airfoil=afoil, alpha=angles, Reynolds=Re, iteration=1000, NACA=False, GDES=False, direc=direc)
+                coeffs = find_coefficients(airfoil=afoil, alpha=angles, Reynolds=Re, Ncrit=Ncrit, iteration=1000, NACA=False, GDES=False, direc=direc)
             
             # assemble afoil polar from xfoil coefficient data
             afoil_polar = np.hstack((np.array(coeffs["alpha"]).reshape(-1, 1),
