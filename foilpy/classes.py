@@ -10,7 +10,7 @@ from scipy.interpolate import interp1d, CubicSpline, splprep, splev, pchip_inter
 from foilpy.myaeropy.xfoil_module import find_coefficients
 from foilpy.LL_functions import steady_LL_solve, plot_wake
 from foilpy.utils import rotation_matrix, translation_matrix, apply_rotation, cosspace
-from foilpy.utils import unit_2_meters, ms2knts
+from foilpy.utils import unit_2_meters, ms2knts, unique_unsrt
 # import jax_cosmo as jc
 
 
@@ -66,7 +66,7 @@ class FoilAssembly:
 
     def plot_foil_assembly(self):
         fig = plt.figure()
-        ax = fig.gca(projection="3d")
+        ax = fig.add_subplot(projection='3d')
         fig, ax = self.main_wing.plot3D(new_fig=False, fig =fig, ax=ax)
         fig, ax = self.mast.plot3D(new_fig=False, fig=fig, ax=ax)
         fig, ax = self.stabiliser.plot3D(new_fig=False, fig=fig, ax=ax)
@@ -456,7 +456,7 @@ class LiftingSurface:
 
         if new_fig:
             fig = plt.figure()
-            ax = fig.gca(projection="3d")
+            ax = fig.add_subplot(projection='3d')
         ax.plot3D(x_coords, y_coords, z_coords, 'k-')
         ax.plot3D(self.ref_axis[:, 0], self.ref_axis[:, 1], self.ref_axis[:, 2], 'm-')  # plot ref axis
         ax.plot3D(self.qu_chord_loc[:, 0], self.qu_chord_loc[:, 1], self.qu_chord_loc[:, 2],
@@ -862,8 +862,7 @@ class LiftingSurface:
 
     def export_wing_2_stl(self, stl_save_name, SF=1000, mounting_angle=0, resolution='low', plot_flag=True):
 
-        # determine point spacing based on resolution request
-
+        ## Determine point spacing based on resolution request
         # compute arc length around root chord
         afoil_coords_cntr = self.afoil_table[self.afoil[0][0]]["coords"]
         _, indx = np.unique(afoil_coords_cntr, return_index=True, axis=0)
@@ -871,6 +870,7 @@ class LiftingSurface:
         s_coord_root = np.append(0, np.cumsum(np.sqrt(np.sum(np.diff(afoil_coords_cntr, axis=0) ** 2, axis=1))))
         arc_length_root = s_coord_root[-1]
         
+        # Define spacing based on resolution
         if resolution == 'high':
             spanwise_spacing = 0.0022   # 201 pts on stab440
             cs_spacing = 0.00073        # 251 cs pts on stab440
@@ -881,20 +881,21 @@ class LiftingSurface:
             spanwise_spacing = 0.021    # 21 pts on stab440
             cs_spacing = 0.0073         # 25 cs pts on stab440
 
+        # Compute spanwise and arc-length-wise no of points
         ncs_pts = int(arc_length_root / cs_spacing)
         if (ncs_pts % 2) == 0:
             ncs_pts += 1 # if even, add 1
-        
         ncs = int(self.span / spanwise_spacing)
         if (ncs % 2) == 0:
             ncs += 1 # if even, add 1
         print('Number of cross-sectional points = ', str(ncs_pts))
         print('Number of spanwise points = ', str(ncs))
 
+        ## Pre-process normalised afoils
         if plot_flag:
             fig, ax_afoil = plt.subplots()
         afoil_coords = np.zeros((ncs_pts, 3, len(self.afoil_table)))
-        # loop through and pre-process afoils 
+        # loop through and pre-process afoils
         for i, afoil in enumerate(self.afoil_table):
             # prep and interpolate airfoil on new grid
             # smoothing (pchip) interpolation of afoil on evenly spaced arc-length grid

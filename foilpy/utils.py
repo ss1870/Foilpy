@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.interpolate import pchip_interpolate, CubicSpline, Akima1DInterpolator
+from scipy.linalg import toeplitz
 
 def ms2knts(velocity):
     """Converts m/s to knots."""
@@ -50,6 +51,16 @@ def cosspace(x_start, x_end, n_pts=100, factor=False):
     if factor is not False:
         output = (1-factor) * output + factor * np.append(x_start + np.arange(0, n_pts-1) * (x_end-x_start) / (n_pts-1), x_end)
 
+    output[0] = x_start # avoid numerical error
+    output[-1] = x_end # avoid numerical error
+    return output
+
+def sinspace(x_start, x_end, n_pts=100):
+    """
+    Generates sine space vector between xstart and xend.
+    """
+    theta = np.linspace(0, np.pi / 2, n_pts)
+    output = x_start + (x_end - x_start) * np.sin(theta)
     output[0] = x_start # avoid numerical error
     output[-1] = x_end # avoid numerical error
     return output
@@ -128,3 +139,51 @@ def interp_cps(x_query, cp_locs, cps, interp_type):
                                             all_cps[:,1])
         out = interpolator(x_query)
     return out
+
+def unique_unsrt(input, axis=None):
+    _, index = np.unique(input, axis=axis, return_index=True)
+    if axis==0:
+        return input[sorted(index), :]
+    elif axis==1:
+        return input[:, sorted(index)]
+
+def reinterp_arc_length(coords, ncs_pts, keepLE=False, le_id=None):
+    """
+    Takes a series of x y coordinates and reinterpolates on an equally spaced
+    arc length grid.
+    """
+    if keepLE:
+        coords1 = coords[:le_id+1,:]
+        s_coord1 = np.append(0, np.cumsum(np.sqrt(np.sum(np.diff(coords1, axis=0) ** 2, axis=1))))
+        coords2 = coords[le_id:,:]
+        s_coord2 = np.append(0, np.cumsum(np.sqrt(np.sum(np.diff(coords2, axis=0) ** 2, axis=1))))
+        ncs1 = int(np.round(ncs_pts * s_coord1[-1] / (s_coord1[-1] + s_coord2[-1])))
+        ncs2 = int(np.round(ncs_pts * s_coord2[-1] / (s_coord1[-1] + s_coord2[-1]))) + 1
+        if ncs1 + ncs2 != ncs_pts+1:
+            raise Exception("Resulting grid does not equal requested. Fix code.")
+        new_coords1 = reinterp_arc_length(coords1, ncs1, keepLE=False)
+        new_coords1[np.isclose(new_coords1, 0)] = 0
+        new_coords1[np.isclose(new_coords1, 1)] = 1
+        new_coords2 = reinterp_arc_length(coords2, ncs2, keepLE=False)
+        new_coords2[np.isclose(new_coords2, 0)] = 0
+        new_coords2[np.isclose(new_coords2, 1)] = 1
+        new_coords = np.vstack((new_coords1, new_coords2[1:,:]))
+
+    else:
+        s_coord = np.append(0, np.cumsum(np.sqrt(np.sum(np.diff(coords, axis=0) ** 2, axis=1))))
+        new_s_grid = np.linspace(s_coord[0], s_coord[-1], ncs_pts)
+        new_coords = pchip_interpolate(s_coord, coords, new_s_grid)
+    # new_s_grid = cosspace(s_coord[0], s_coord[-1], n=-ncs_pts, factor=0.5)
+    return new_coords
+
+def eval_curvature(xy):
+
+    dx = xy[1,0] - xy[0,0]
+    ar1 = [0, -1]
+    ar1.extend(np.zeros(xy.shape[0]-2))
+    # FD_Mat1st = toeplitz([0 -1 np.zeros(length(x)-2)],
+    #                      [0 1 np.zeros(1,length(x)-2)]) / 2 / dx # 1st order central diff
+    #      FD_Mat2nd = toeplitz([-2 1 zeros(1,length(x)-2)])/dx^2; % 2nd order central diff
+    #      ydot      = FD_Mat1st*y;
+    #      ydotdot   = FD_Mat2nd*y;
+    #      k         = abs(ydotdot)./(1+ydot.^2).^(3/2);   % curvature

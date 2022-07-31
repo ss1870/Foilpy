@@ -17,6 +17,9 @@ To-do:
 	- Try optimise planform for constant lift at specified AoA/speed, and minimum drag?
     - look into pitch, roll, yaw stability
     - try parallel for loop on loop through angles?
+    - Spline surface output of geometry
+        - Implement TE and tip cut-offs in order to have a nice 2D parameterised (U,V) surface
+        - Re-use point generation from STL export to create a surface
 
 
 - Unanswered questions:
