@@ -310,7 +310,7 @@ class BSplineCurve():
         return N
     
     def plot_curve(self, pts=100, method=2, return_axes=False, 
-                    extra_pts=None):
+                    extra_pts=None, scaled=True):
         """
         Plot curve over full u domain
         """
@@ -323,7 +323,8 @@ class BSplineCurve():
             ax.plot(self.contrl_pts[:,0], self.contrl_pts[:,1], linestyle='--', marker='.', label='CPs')
             if np.any(extra_pts != None):
                 ax.plot(extra_pts[:,0], extra_pts[:,1], linestyle='', marker='.')
-            ax.axis('scaled')
+            if scaled:
+                ax.axis('scaled')
         elif self.ndims == 3:
             fig = plt.figure()
             ax = fig.add_subplot(projection='3d')
@@ -331,6 +332,74 @@ class BSplineCurve():
             ax.plot3D(self.contrl_pts[:,0], self.contrl_pts[:,1], self.contrl_pts[:,2], linestyle='--', marker='.', label='CPs')
         if return_axes:
             return fig, ax
+
+def get_u_bar(Q):
+    # determine u_bar (spacing between interpolation points)
+    temp = np.sqrt(np.linalg.norm(Q[1:,:] - Q[:-1,:], axis=1))
+    # temp = np.linalg.norm(Q[1:,:] - Q[:-1,:], axis=1)
+    d = np.sum(temp, axis=0)
+    u_bar = np.append(0, np.cumsum(temp/d))
+    u_bar[-1] = 1
+    return u_bar
+
+def spline_curve_approx(Q, ncp, p, U=None, plot_flag=True):
+    """
+    Spline curve approximation.
+    """
+    npts = Q.shape[0]
+    m = npts - 1
+    n = ncp - 1
+    nk = n + p + 2
+
+    # Get u_bar from spacing between supplied points
+    u_bar = get_u_bar(Q)
+
+    # Determine knot vector
+    d = (m + 1) / (n - p + 1)
+    U = np.zeros((nk))
+    for j in range(1, n-p+1):
+        i = int(j*d)
+        alpha = j*d - i
+        U[p+j] = (1-alpha) * u_bar[i-1] + alpha * u_bar[i]
+    U[-p-1:] = 1
+
+    # Initialise a spline curve with degree and knot vector
+    curve = BSplineCurve(p, U)
+    curve.ndims = Q.shape[1]
+    curve.weights = np.ones((ncp,1))
+
+    # Fill coefficient matrix N using basis functions
+    Nall = np.zeros((m+1, n+1))
+    for k in range(0, m+1):
+        span = curve.find_span(u_bar[k])
+        Nall[k, span-p:span+1] = np.squeeze(curve.basis_funs(span, u_bar[k]))
+
+    N = Nall[1:m, 1:n]
+
+    # Fill Rk vector
+    Rk = Q - Nall[:,0].reshape(-1,1) * Q[0,:].reshape(1,-1) - Nall[:,-1].reshape(-1,1) * Q[-1,:].reshape(1,-1)
+
+    # Define R vector
+    R = np.matmul(N.T, Rk[1:-1,:])
+
+    NtN = np.matmul(N.T, N)
+
+    # Solve linear system of equations for each dimension
+    if curve.ndims == 2:
+        P = np.stack((np.linalg.solve(NtN, R[:,0]),
+                        np.linalg.solve(NtN, R[:,1])), axis=1)
+    elif curve.ndims == 3:
+        P = np.stack((np.linalg.solve(NtN, R[:,0]),
+                        np.linalg.solve(NtN, R[:,1]),
+                        np.linalg.solve(NtN, R[:,2])), axis=1)
+    P = np.append(np.append(Q[0,:].reshape(1,-1), P, axis=0), Q[-1,:].reshape(1,-1), axis=0)
+
+    curve.contrl_pts = P
+    curve.Pw = np.hstack((curve.weights * curve.contrl_pts, curve.weights))
+
+    if plot_flag:
+        curve.plot_curve(method=2, scaled=False, extra_pts=Q)
+
 
 def spline_curve_interp(Q, p, plot_flag=True):
     """
@@ -343,12 +412,9 @@ def spline_curve_interp(Q, p, plot_flag=True):
     n = ncp - 1
     m = n + p + 1
     nk = m + 1  
-    # determine u_bar (spacing between interpolation points)
-    temp = np.sqrt(np.linalg.norm(Q[1:,:] - Q[:-1,:], axis=1))
-    # temp = np.linalg.norm(Q[1:,:] - Q[:-1,:], axis=1)
-    d = np.sum(temp, axis=0)
-    u_bar = np.append(0, np.cumsum(temp/d))
-    u_bar[-1] = 1
+
+    # Determine u_bar
+    u_bar = get_u_bar(Q)
 
     # Determine knot vector U
     U = np.zeros((nk))
