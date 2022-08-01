@@ -3,6 +3,7 @@ from this import d
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import CubicSpline, interp1d
+from copy import deepcopy
 
 class BSplineCurve():
     """
@@ -26,7 +27,9 @@ class BSplineCurve():
             if np.any(w != None):
                 # if weights are present then this is a NURBS curve
                 self.weights = w    # Weights
-                self.Pw = np.hstack((self.weights * self.contrl_pts, self.weights))
+            else:
+                self.weights = np.ones((n+1,1))
+            self.Pw = np.hstack((self.weights * self.contrl_pts, self.weights))
         
     def def_M(self):
         """
@@ -34,7 +37,7 @@ class BSplineCurve():
         Used for evaluating points and derivatives.
         http://and-what-happened.blogspot.com/2012/07/evaluating-b-splines-aka-basis-splines.html
         """
-        if self.M is None and self.degree == 3:
+        if self.degree == 3:
             nseg = len(self.knots) - 1
             kv = np.append(np.append([self.knots[0]]*2, self.knots), [self.knots[-1]]*2)
 
@@ -280,19 +283,26 @@ class BSplineCurve():
         xy = self.eval_list(u, method=2)
 
         # compute arc-length coords
-        s = np.append(0, np.cumsum(np.sqrt(np.sum(np.diff(xy, axis=0) ** 2, axis=1))))
-        self.length = s[-1]
+        if self.ndims == 1:
+            xy = np.hstack((u.reshape(-1,1), xy))
+            s = u
+            self.length = s[-1]
+        else:
+            s = np.append(0, np.cumsum(np.sqrt(np.sum(np.diff(xy, axis=0) ** 2, axis=1))))
+            self.length = s[-1]
 
         # define interper mappings
         self.u2s = interp1d(u, s)
         self.u2norms = interp1d(u, s/self.length)
         self.s2u = interp1d(s, u)
         self.norms2u = interp1d(s/self.length, u)
+        self.norms2xy = interp1d(s/self.length, xy, axis=0)
 
         if plot_flag:
             fig, ax = plt.subplots()
             ax.plot(u/u[-1], s/self.length)
             ax.axis('scaled')
+            ax.grid(True)
             ax.set_xlabel('Norm u')
             ax.set_ylabel('Norm s')
 
@@ -309,7 +319,7 @@ class BSplineCurve():
         plt.plot(u_all, N.T)
         return N
     
-    def plot_curve(self, pts=100, method=2, return_axes=False, 
+    def plot_curve(self, pts=100, method=2, fig = None, ax = None, return_axes=False, 
                     extra_pts=None, scaled=True):
         """
         Plot curve over full u domain
@@ -317,7 +327,17 @@ class BSplineCurve():
         u_all = np.linspace(self.U[0], self.U[-1], 1000)
         C = self.eval_list(u_all, method=method)
 
-        if self.ndims == 2:
+        if self.ndims == 1:
+            if fig == None:
+                fig, ax = plt.subplots()
+            ax.plot(u_all, C[:,0], label='Spline curve')
+            Px = self.knots
+            Px = np.insert(Px, 1, (2*Px[0]+Px[1])/3)
+            Px = np.insert(Px, len(Px)-1, (2*Px[-1]+Px[-2])/3)
+            ax.plot(Px, self.contrl_pts[:,0], linestyle='--', marker='.', label='CPs')
+            if np.any(extra_pts != None):
+                ax.plot(extra_pts[:,0], extra_pts[:,1], linestyle='', marker='.')
+        elif self.ndims == 2:
             fig, ax = plt.subplots()
             ax.plot(C[:,0], C[:,1], label='Spline curve')
             ax.plot(self.contrl_pts[:,0], self.contrl_pts[:,1], linestyle='--', marker='.', label='CPs')
@@ -330,6 +350,7 @@ class BSplineCurve():
             ax = fig.add_subplot(projection='3d')
             ax.plot3D(C[:,0], C[:,1], C[:,2], label='Spline curve')
             ax.plot3D(self.contrl_pts[:,0], self.contrl_pts[:,1], self.contrl_pts[:,2], linestyle='--', marker='.', label='CPs')
+        ax.grid(True)
         if return_axes:
             return fig, ax
 
@@ -342,7 +363,8 @@ def get_u_bar(Q):
     u_bar[-1] = 1
     return u_bar
 
-def spline_curve_approx(Q, ncp, p, U=None, plot_flag=True):
+def spline_curve_approx(Q, ncp, p, u_bar=None, U=None, gombocX=False, 
+                        rond0=None, plot_flag=True):
     """
     Spline curve approximation.
     """
@@ -352,16 +374,18 @@ def spline_curve_approx(Q, ncp, p, U=None, plot_flag=True):
     nk = n + p + 2
 
     # Get u_bar from spacing between supplied points
-    u_bar = get_u_bar(Q)
+    if np.all(u_bar == None):
+        u_bar = get_u_bar(Q)
 
-    # Determine knot vector
-    d = (m + 1) / (n - p + 1)
-    U = np.zeros((nk))
-    for j in range(1, n-p+1):
-        i = int(j*d)
-        alpha = j*d - i
-        U[p+j] = (1-alpha) * u_bar[i-1] + alpha * u_bar[i]
-    U[-p-1:] = 1
+    if np.all(U == None):
+        # Determine knot vector
+        d = (m + 1) / (n - p + 1)
+        U = np.zeros((nk))
+        for j in range(1, n-p+1):
+            i = int(j*d)
+            alpha = j*d - i
+            U[p+j] = (1-alpha) * u_bar[i-1] + alpha * u_bar[i]
+        U[-p-1:] = 1
 
     # Initialise a spline curve with degree and knot vector
     curve = BSplineCurve(p, U)
@@ -385,20 +409,36 @@ def spline_curve_approx(Q, ncp, p, U=None, plot_flag=True):
     NtN = np.matmul(N.T, N)
 
     # Solve linear system of equations for each dimension
-    if curve.ndims == 2:
-        P = np.stack((np.linalg.solve(NtN, R[:,0]),
-                        np.linalg.solve(NtN, R[:,1])), axis=1)
-    elif curve.ndims == 3:
-        P = np.stack((np.linalg.solve(NtN, R[:,0]),
-                        np.linalg.solve(NtN, R[:,1]),
-                        np.linalg.solve(NtN, R[:,2])), axis=1)
+    P = np.zeros((ncp-2, curve.ndims))
+    for i in range(curve.ndims):
+        P[:,i] = np.linalg.solve(NtN, R[:,i])
+    # if curve.ndims == 2:
+    #     P = np.stack((np.linalg.solve(NtN, R[:,0]),
+    #                     np.linalg.solve(NtN, R[:,1])), axis=1)
+    # elif curve.ndims == 3:
+    #     P = np.stack((np.linalg.solve(NtN, R[:,0]),
+    #                     np.linalg.solve(NtN, R[:,1]),
+    #                     np.linalg.solve(NtN, R[:,2])), axis=1)
     P = np.append(np.append(Q[0,:].reshape(1,-1), P, axis=0), Q[-1,:].reshape(1,-1), axis=0)
+
+    if gombocX:
+        X = rond0.u2s(U[p:-p])
+        X = np.insert(X, 1, (2*X[0]+X[1])/3)
+        X = np.insert(X, len(X)-1, (2*X[-1]+X[-2])/3)
+        P[:,0] = X
 
     curve.contrl_pts = P
     curve.Pw = np.hstack((curve.weights * curve.contrl_pts, curve.weights))
 
     if plot_flag:
+        if curve.ndims == 1:
+            Q = np.hstack((u_bar.reshape(-1,1), Q.reshape(-1,1)))
         curve.plot_curve(method=2, scaled=False, extra_pts=Q)
+
+    if gombocX:
+        return curve, u_bar
+    else:
+        return curve
 
 
 def spline_curve_interp(Q, p, plot_flag=True):
@@ -557,3 +597,60 @@ def wrapper(X, opti_options):
 # i = curve.find_span(u)
 # dN = curve.basis_funs(i, u, ders=2)
 # curve.eval_der(u, 2)
+
+
+##### Opti trials:
+# from scipy.optimize import Bounds, LinearConstraint, minimize
+# from scipy.optimize import SR1
+# X0 = twist_curv.knots[1:-1]
+# nDVs = len(X0)
+# LB = np.zeros((nDVs))
+# UB = np.ones((nDVs))
+# F = lambda X : wrapper(X, Q, ncp, p, rond0)
+# F(X0)
+
+# lin_con_coeffs = np.zeros((nDVs,nDVs))
+# lin_con_lb = -np.inf * np.ones((nDVs))
+# lin_con_ub = np.inf * np.ones((nDVs))
+# knt_counter = 0
+# cons = []
+# for i in range(nDVs):
+#     lin_con_coeffs[i,i] = 1
+#     if knt_counter < (nDVs-1):
+#         lin_con_coeffs[i,i+1] = -1
+#         lin_con_ub[i] = 0
+#         temp = lambda x: x[i+1] - x[i]
+#     else:
+#         lin_con_ub[i] = 1
+#         temp = lambda x: 1 - x[i] 
+#     cons.append({'type': 'ineq', 'fun': temp})
+#     knt_counter += 1
+# bounds = Bounds(LB, UB)
+# lin_constr = LinearConstraint(lin_con_coeffs, lin_con_lb, lin_con_ub)
+
+
+# # jac="2-point", hess=SR1(),
+# res = minimize(F, X0, method='trust-constr', jac="3-point",
+#                constraints=[lin_constr],
+#                options={'verbose': 1, 'maxiter': 50, 'disp': True}, 
+#                bounds=bounds)
+# wrapper(res.x, Q, ncp, p, rond0, plot_flag=True)
+
+
+# from scipy.optimize import shgo
+# res = shgo(F, np.stack((LB,UB), axis=1), iters=4, constraints=cons,
+#                options={'disp': True})
+
+
+
+# def wrapper(X, Q, ncp, p, rond0, plot_flag=False):
+#     U = np.append(np.append([0]*(p+1), X), [1]*(p+1))
+#     try: 
+#         curv, u_bar = spl.spline_curve_approx(Q, ncp, p, U=U, 
+#                     gombocX=True, rond0=rond0, plot_flag=plot_flag)
+        
+#         obj = np.sum(np.linalg.norm(Q - curv.eval_list(u_bar), axis=1) ** 2)
+#     except:
+#         obj = 100
+#     return obj
+
