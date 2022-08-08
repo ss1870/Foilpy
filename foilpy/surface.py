@@ -32,42 +32,7 @@ class SplineSurface(BSplineCurve):
         self.m = self.s - self.q - 1
 
 
-def parameterise_curve(Q, method='centripetal', plot_flag=False):
-    """
-    Parameterises a set of points along a line.
-    """
-    # Compute straight line vector between each point
-    vec = Q[1:,:] - Q[:-1,:]
-    # Compute norm (length) of each vector
-    chrd_len = np.linalg.norm(vec, axis=1)
 
-    if method == 'uniform':
-        dQ = chrd_len ** 0
-    elif method == 'chord':
-        dQ = chrd_len ** 1
-    elif method == 'centripetal':
-        dQ = chrd_len ** 0.5
-    elif method == 'Fang':
-        triangle_chrd = np.linalg.norm(Q[2:,:] - Q[:-2,:], axis=1)
-        li = np.amin(np.stack((chrd_len[:-1], chrd_len[1:], triangle_chrd), axis=1), axis=1)
-        dotprod = np.sum(vec[1:,:] * vec[:-1,:], axis=1)
-        thi = np.pi - np.arccos( dotprod / (chrd_len[1:] * chrd_len[:-1]))
-        dQ = chrd_len ** 0.5
-        dQ[:-1] += 0.1 * (0.5 * thi * li / np.sin(0.5*thi))
-        dQ[1:] += 0.1 * (0.5 * thi * li / np.sin(0.5*thi))
-    else:
-        print("Method unrecognised.")
-
-    d = np.sum(dQ, axis=0)
-    u_bar = np.append(0, np.cumsum(dQ/d))
-    u_bar[-1] = 1 # avoids numerical errors
-
-    if plot_flag:
-        s = np.append(0, np.cumsum(chrd_len) / np.sum(chrd_len))
-        fig, ax = plt.subplots()
-        ax.plot(s, u_bar)
-        ax.grid(True)
-    return u_bar
 
 def parameterise_surf(points, method='centripetal'):
     """

@@ -365,17 +365,150 @@ class BSplineCurve():
         if return_axes:
             return fig, ax
 
-def get_u_bar(Q):
-    # determine u_bar (spacing between interpolation points)
-    temp = np.sqrt(np.linalg.norm(Q[1:,:] - Q[:-1,:], axis=1))
-    # temp = np.linalg.norm(Q[1:,:] - Q[:-1,:], axis=1)
-    d = np.sum(temp, axis=0)
-    u_bar = np.append(0, np.cumsum(temp/d))
-    u_bar[-1] = 1
+
+def parameterise_curve(Q, method='centripetal', plot_flag=False):
+    """
+    Parameterises a set of points along a line.
+    Different methods are available:
+        - 'uniform'
+        - 'chord'
+        - 'centripetal'
+        - 'Fang'
+    """
+    # Compute straight line vector between each point
+    vec = Q[1:,:] - Q[:-1,:]
+    # Compute norm (length) of each vector
+    chrd_len = np.linalg.norm(vec, axis=1)
+
+    if method == 'uniform':
+        dQ = chrd_len ** 0
+    elif method == 'chord':
+        dQ = chrd_len ** 1
+    elif method == 'centripetal':
+        dQ = chrd_len ** 0.5
+    elif method == 'Fang':
+        triangle_chrd = np.linalg.norm(Q[2:,:] - Q[:-2,:], axis=1)
+        li = np.amin(np.stack((chrd_len[:-1], chrd_len[1:], triangle_chrd), axis=1), axis=1)
+        dotprod = np.sum(vec[1:,:] * vec[:-1,:], axis=1)
+        thi = np.pi - np.arccos( dotprod / (chrd_len[1:] * chrd_len[:-1]))
+        dQ = chrd_len ** 0.5
+        dQ[:-1] += 0.1 * (0.5 * thi * li / np.sin(0.5*thi))
+        dQ[1:] += 0.1 * (0.5 * thi * li / np.sin(0.5*thi))
+    else:
+        print("Curve parameterisation method unrecognised.")
+
+    d = np.sum(dQ, axis=0)
+    u_bar = np.append(0, np.cumsum(dQ/d))
+    u_bar[-1] = 1 # avoids numerical errors
+
+    if plot_flag:
+        s = np.append(0, np.cumsum(chrd_len) / np.sum(chrd_len))
+        fig, ax = plt.subplots()
+        ax.plot(s, u_bar)
+        ax.grid(True)
     return u_bar
 
-def spline_curve_approx(Q, ncp, p, u_bar=None, U=None, plot_flag=True, 
-                        Uplace='adapt'):
+
+def distribute_knots(u_bar, p, n_knts, Q=None, method='even_interp', 
+                        plot_flag=False):
+    """
+    Determines knot spacing for a given set of points
+    """
+    r = n_knts - 1
+    n = r - p - 1
+    nCP = n + 1
+
+    U = np.zeros((n_knts))
+    U[:p+1] = 0
+    U[r-p:] = 1
+    if method == 'even_interp':
+        # Even spacing for spline interpolation
+        U[p+1:r-p] = [np.sum(u_bar[j:j+p]) / p for j in range(1,n-p+1)]
+        assert nCP == len(u_bar)
+    elif method == 'even_approx':
+        d = Q.shape[0] / (n - p + 1)
+        for j in range(1, n-p+1):
+            i = int(j*d)
+            alpha = j*d - i
+            U[p+j] = (1-alpha) * u_bar[i-1] + alpha * u_bar[i]
+        U[-p-1:] = 1
+    elif method == 'adaptive':
+        m = Q.shape[0]
+        # Compute derivatives up to order of approximating curve
+        Qtemp = Q
+        utemp = u_bar.reshape(-1,1)
+        ders = {"der0" : {"q": Qtemp, "u": utemp}}
+        for k in range(1, p+1):
+            qk = (Qtemp[1:,:] - Qtemp[:-1,:]) / (utemp[1:,:] - utemp[:-1,:])
+            uk = 0.5 * (utemp[1:,:] + utemp[:-1,:])
+            ders["der%i"%(k)] = {"q": qk, "u": uk}
+            Qtemp = qk
+            utemp = uk
+
+        # Calc feature function
+        ui = np.append(np.append(u_bar[0], ders["der%i"%(p)]["u"][1:m-p+1]), u_bar[m-1])
+        qi = ders["der%i"%(p)]["q"][1:m-p+1,:]
+        fi = np.linalg.norm(qi, axis=1) ** (1/p)
+        fi = np.append(np.append(0, fi), 0)
+
+        # Cumulative feature function
+        fj = 0.5 * (fi[1:] + fi[:-1]) * (ui[1:] - ui[:-1])
+        Fi = np.append(0, np.cumsum(fj))
+
+        # Determine deltaF based on requested number of CPs and knots
+        n_iknts = n_knts - p*2
+        deltaF = Fi[-1] / (n_iknts - 1)
+        # Adjust cumulative integration in case of any small gaps
+        fj = np.minimum(deltaF, 0.5 * (fi[1:] + fi[:-1]) * (ui[1:] - ui[:-1]))
+        Fi = np.append(0, np.cumsum(fj))
+        deltaF = Fi[-1] / (n_iknts - 1)
+
+        # Invert the feature function
+        Finv = interp1d(Fi, ui)
+
+        # Determine the knot vector
+        k = np.arange(1, n_iknts+1)
+        even_f_pts = (k - 1) * deltaF
+        if np.isclose(even_f_pts[-1], Fi[-1]):
+            even_f_pts[-1] = Fi[-1]
+        Uk = Finv(even_f_pts)
+        if np.isclose(Uk[0], u_bar[0]):
+            Uk[0] = u_bar[0]
+        if np.isclose(Uk[-1], u_bar[-1]):
+            Uk[-1] = u_bar[-1]
+        U = np.concatenate(([u_bar[0]]*p, Uk, [u_bar[-1]]*p))
+
+        if plot_flag:
+            # Plot derivatives
+            fig, axes = plt.subplots(p+1,1)
+            for k, ax in enumerate(axes):
+                ax.plot(ders["der%i"%(k)]["u"], ders["der%i"%(k)]["q"])
+            plt.title("Derivatives")
+
+            # Plot feature function
+            fig, ax = plt.subplots()
+            ax.plot(ui, fi)
+            plt.title("Feature function")
+
+            # Plot cumulative feature function and knots
+            fig, ax = plt.subplots()
+            ax.plot(ui, Fi)
+            F = interp1d(ui, Fi)
+            for uk in Uk:
+                ax.plot([uk,uk], [0, F(uk)], linestyle='--', color='black')
+                ax.plot([0, uk], [F(uk), F(uk)], linestyle='--', color='black')
+            plt.title("Cumulative feature function + knots")
+    else:
+        raise Exception("Knot spacing method not recognised: " + method)
+
+    if plot_flag:
+        b=4
+
+    return U
+
+
+def curve_approx(Q, ncp, p, u_bar=None, U=None, plot_flag=True, 
+                        knot_spacing='adaptive', param_method='centripetal'):
     """
     Spline curve approximation.
     Creates an approximating spline function given the points Q.
@@ -383,96 +516,25 @@ def spline_curve_approx(Q, ncp, p, u_bar=None, U=None, plot_flag=True,
     The user may also specify the parameterisation of the points (u_bar),
     otherwise the chordwise method is used. The user may also specify the knot
     vector, otherwise two methods are available:
-        Uplace='even'  : Even spacing between knots.
-        Uplace='adapt' : Adaptive knot spacing method based on Fast Automatic Knot Placement Method for Accurate B-spline Curve Fitting (https://doi.org/10.1016/j.cad.2020.102905)
-    'adapt' is recommended unless the data is noisy.
+        knot_spacing='even_approx'  : Even spacing between knots.
+        knot_spacing='adaptive'     : Adaptive knot spacing method based on Fast Automatic Knot Placement Method for Accurate B-spline Curve Fitting (https://doi.org/10.1016/j.cad.2020.102905)
+    'adaptive' is recommended unless the data is noisy.
     """
     npts = Q.shape[0]
     m = npts
     n = ncp - 1
-    nk = n + p + 2
+    n_knts = n + p + 2
+    if ncp + p + 1 < 8:
+        raise Exception("No of control points for approximation must be >= (7 - degree)")
 
     # Get u_bar from spacing between supplied points
     if np.all(u_bar == None):
-        u_bar = get_u_bar(Q)
+        u_bar = parameterise_curve(Q, method=param_method)
 
     # Determine knot vector (if not provided)
     if np.all(U == None):
-        if Uplace == 'adapt':
-            # Compute derivatives up to order of approximating curve
-            Qtemp = Q
-            utemp = u_bar.reshape(-1,1)
-            ders = {"der0" : {"q": Qtemp, "u": utemp}}
-            for k in range(1, p+1):
-                qk = (Qtemp[1:,:] - Qtemp[:-1,:]) / (utemp[1:,:] - utemp[:-1,:])
-                uk = 0.5 * (utemp[1:,:] + utemp[:-1,:])
-                ders["der%i"%(k)] = {"q": qk, "u": uk}
-                Qtemp = qk
-                utemp = uk
-
-            # Calc feature function
-            ui = np.append(np.append(u_bar[0], ders["der%i"%(p)]["u"][1:m-p+1]), u_bar[m-1])
-            qi = ders["der%i"%(p)]["q"][1:m-p+1,:]
-            fi = np.linalg.norm(qi, axis=1) ** (1/p)
-            fi = np.append(np.append(0, fi), 0)
-
-            # Cumulative feature function
-            fj = 0.5 * (fi[1:] + fi[:-1]) * (ui[1:] - ui[:-1])
-            Fi = np.append(0, np.cumsum(fj))
-
-            # Determine deltaF based on requested number of CPs and knots
-            r = nk - p*2
-            deltaF = Fi[-1] / (r - 1)
-            # Adjust cumulative integration in case of any small gaps
-            fj = np.minimum(deltaF, 0.5 * (fi[1:] + fi[:-1]) * (ui[1:] - ui[:-1]))
-            Fi = np.append(0, np.cumsum(fj))
-            deltaF = Fi[-1] / (r - 1)
-
-            # Invert the feature function
-            Finv = interp1d(Fi, ui)
-
-            # Determine the knot vector
-            k = np.arange(1, r+1)
-            even_f_pts = (k - 1) * deltaF
-            if np.isclose(even_f_pts[-1], Fi[-1]):
-                even_f_pts[-1] = Fi[-1]
-            Uk = Finv(even_f_pts)
-            if np.isclose(Uk[0], u_bar[0]):
-                Uk[0] = u_bar[0]
-            if np.isclose(Uk[-1], u_bar[-1]):
-                Uk[-1] = u_bar[-1]
-            U = np.concatenate(([u_bar[0]]*p, Uk, [u_bar[-1]]*p))
-
-            if plot_flag:
-                # Plot derivatives
-                fig, axes = plt.subplots(p+1,1)
-                for k, ax in enumerate(axes):
-                    ax.plot(ders["der%i"%(k)]["u"], ders["der%i"%(k)]["q"])
-                plt.title("Derivatives")
-
-                # Plot feature function
-                fig, ax = plt.subplots()
-                ax.plot(ui, fi)
-                plt.title("Feature function")
-
-                # Plot cumulative feature function and knots
-                fig, ax = plt.subplots()
-                ax.plot(ui, Fi)
-                F = interp1d(ui, Fi)
-                for uk in Uk:
-                    ax.plot([uk,uk], [0, F(uk)], linestyle='--', color='black')
-                    ax.plot([0, uk], [F(uk), F(uk)], linestyle='--', color='black')
-                plt.title("Cumulative feature function + knots")
-
-        elif Uplace == 'even':
-            # Determine knot vector
-            d = (m) / (n - p + 1)
-            U = np.zeros((nk))
-            for j in range(1, n-p+1):
-                i = int(j*d)
-                alpha = j*d - i
-                U[p+j] = (1-alpha) * u_bar[i-1] + alpha * u_bar[i]
-            U[-p-1:] = 1
+        U = distribute_knots(u_bar, p, n_knts, Q=Q, method=knot_spacing, 
+                                plot_flag=plot_flag)
 
     # Initialise a spline curve with degree and knot vector
     curve = BSplineCurve(p, U)
@@ -521,28 +583,26 @@ def spline_curve_approx(Q, ncp, p, u_bar=None, U=None, plot_flag=True,
     
     return curve
 
-def spline_curve_interp(Q, p, u_bar=None, U=None, plot_flag=True):
+
+def curve_interp(Q, p, u_bar=None, U=None, plot_flag=True):
     """
     Simple linear spline curve interpolation through points.
     Assumes all weights = 1.
-    Q = list of points - size (ncp,2 or 3)
+    Q = list of points - size (ncp, 2 or 3)
     p = degree of curve
     """
     ncp = Q.shape[0]
     n = ncp - 1
-    m = n + p + 1
-    nk = m + 1  
+    r = n + p + 1
+    n_knts = r + 1
 
     if np.all(u_bar == None):
         # Determine u_bar
-        u_bar = get_u_bar(Q)
+        u_bar = parameterise_curve(Q)
 
     if np.all(U == None):
         # Determine knot vector U
-        U = np.zeros((nk))
-        U[:p+1] = 0
-        U[m-p:] = 1
-        U[p+1:m-p] = [np.sum(u_bar[j:j+p])/p for j in range(1,n-p+1)]
+        U = distribute_knots(u_bar, p, n_knts, method='even_interp', plot_flag=False)
 
     # Initialise a spline curve with degree and knot vector
     curve = BSplineCurve(p, U)
@@ -564,7 +624,6 @@ def spline_curve_interp(Q, p, u_bar=None, U=None, plot_flag=True):
     curve.Pw = np.hstack((curve.weights * curve.contrl_pts, curve.weights))
     
     if plot_flag:
-
         if curve.ndims == 1:
             Qplot = np.hstack((u_bar.reshape(-1,1), Q))
         else:
@@ -576,6 +635,7 @@ def spline_curve_interp(Q, p, u_bar=None, U=None, plot_flag=True):
             # ax.scatter(Q[:,0], Q[:,1], marker='.', label='Original pts')
             # ax.legend()
     return curve
+
 
 def curve_from_DVs(X, opti_options):
     DVinfo = opti_options["DVinfo"]
@@ -603,6 +663,7 @@ def curve_from_DVs(X, opti_options):
         print(U)
         print(curve.knots)
     return curve
+
 
 def wrapper(X, opti_options):
 
@@ -639,6 +700,7 @@ def wrapper(X, opti_options):
     # Define objective
     objective = np.sqrt(np.sum(dist ** 2)) / npts
     return objective
+
 
 ######## Ex1
 # U = [0,0,0,0,1,2,3,3,3,3]
