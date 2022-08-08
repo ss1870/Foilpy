@@ -31,35 +31,6 @@ Q = interper(np.linspace(0,1,ncp))
 curve = fsp.spline_curve_interp(Q, p, plot_flag=True)
 
 
-
-vec = Q[1:,:] - Q[:-1,:]
-Q_chrd = np.linalg.norm(vec, axis=1)
-
-param_method = 'Fang'
-if param_method == 'uniform':
-    dQ = Q_chrd ** 0
-elif param_method == 'chord':
-    dQ = Q_chrd ** 1
-elif param_method == 'cenripetal':
-    dQ = Q_chrd ** 0.5
-elif param_method == 'Fang':
-    triangle_chrd = np.linalg.norm(Q[2:,:] - Q[:-2,:], axis=1)
-    li = np.amin(np.stack((Q_chrd[:-1], Q_chrd[1:], triangle_chrd), axis=1), axis=1)
-    dotprod = np.sum(vec[1:,:] * vec[:-1,:], axis=1)
-    thi = np.pi - np.arccos( dotprod / (Q_chrd[1:] * Q_chrd[:-1]))
-    dQ = Q_chrd ** 0.5
-    dQ[:-1] += 0.1 * (0.5 * thi * li / np.sin(0.5*thi))
-    dQ[1:] += 0.1 * (0.5 * thi * li / np.sin(0.5*thi))
-
-s = np.append(0, np.cumsum(Q_chrd) / np.sum(Q_chrd))
-
-d = np.sum(dQ, axis=0)
-u_bar = np.append(0, np.cumsum(dQ/d))
-
-import matplotlib.pyplot as plt
-fig, ax = plt.subplots()
-ax.plot(s, u_bar)
-ax.grid(True)
 ## set up optimisation
 
 ## Wrapper
