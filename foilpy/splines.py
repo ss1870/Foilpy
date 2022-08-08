@@ -86,12 +86,17 @@ class BSplineCurve():
         low = self.degree
         high = self.n + 1
         mid = int((low + high) / 2)
-        while u < self.U[mid] or u >= self.U[mid+1]:
+        counter = 0
+        while (u < self.U[mid] or u >= self.U[mid+1]) and counter < 1000:
             if u < self.U[mid]:
                 high = mid
             else:
                 low = mid
             mid = int((low + high) / 2)
+            counter += 1
+        if counter >= 1000:
+            raise Exception("Find-span timed out for u = %d"%u)
+        
         return mid
 
     def basis_funs(self, i, u, ders=0): # A2.2
@@ -272,9 +277,13 @@ class BSplineCurve():
         """
         Evaluate curve at a list of u parameters.
         """
-        C = np.zeros((len(u), self.ndims))
-        for i, u in enumerate(u):
-            C[i] = self.eval_curve(u, method=method)
+        try:
+            C = np.zeros((len(u), self.ndims))
+            for i, u in enumerate(u):
+                C[i] = self.eval_curve(u, method=method)
+        except:
+            C = self.eval_curve(u, method=method)
+
         return C
 
     def def_mapping(self, npts=1000, plot_flag=False):
@@ -282,20 +291,14 @@ class BSplineCurve():
         u = np.linspace(self.U[0], self.U[-1], npts)
         xy = self.eval_list(u, method=2)
 
-        # compute arc-length coords
-        if self.ndims == 1:
-            xy = np.hstack((u.reshape(-1,1), xy))
-            s = u
-            self.length = s[-1]
-        else:
-            s = np.append(0, np.cumsum(np.sqrt(np.sum(np.diff(xy, axis=0) ** 2, axis=1))))
-            self.length = s[-1]
+        s = np.append(0, np.cumsum(np.sqrt(np.sum(np.diff(xy, axis=0) ** 2, axis=1))))
+        self.length = s[-1]
 
         # define interper mappings
-        self.u2s = interp1d(u, s)
-        self.u2norms = interp1d(u, s/self.length)
-        self.s2u = interp1d(s, u)
-        self.norms2u = interp1d(s/self.length, u)
+        self.u2s = interp1d(u, s, axis=0)
+        self.u2norms = interp1d(u, s/self.length, axis=0)
+        self.s2u = interp1d(s, u, axis=0)
+        self.norms2u = interp1d(s/self.length, u, axis=0)
         self.norms2xy = interp1d(s/self.length, xy, axis=0)
 
         if plot_flag:
@@ -320,36 +323,44 @@ class BSplineCurve():
         return N
     
     def plot_curve(self, pts=100, method=2, fig = None, ax = None, return_axes=False, 
-                    extra_pts=None, scaled=True):
+                    extra_pts=None, rond=None, scaled=True, plotCPs=True):
         """
         Plot curve over full u domain
         """
         u_all = np.linspace(self.U[0], self.U[-1], 1000)
         C = self.eval_list(u_all, method=method)
 
+        if fig == None:
+            fig, ax = plt.subplots()
         if self.ndims == 1:
-            if fig == None:
-                fig, ax = plt.subplots()
-            ax.plot(u_all, C[:,0], label='Spline curve')
-            Px = self.knots
+
+            if rond != None:
+                x = rond.u2s(u_all)
+                Px = rond.u2s(self.knots)
+            else:
+                x = u_all
+                Px = self.knots
             Px = np.insert(Px, 1, (2*Px[0]+Px[1])/3)
             Px = np.insert(Px, len(Px)-1, (2*Px[-1]+Px[-2])/3)
-            ax.plot(Px, self.contrl_pts[:,0], linestyle='--', marker='.', label='CPs')
+            ax.plot(x, C[:,0])
+
+            if plotCPs:
+                ax.plot(Px, self.contrl_pts[:,0], linestyle='--', marker='.')
             if np.any(extra_pts != None):
                 ax.plot(extra_pts[:,0], extra_pts[:,1], linestyle='', marker='.')
         elif self.ndims == 2:
-            fig, ax = plt.subplots()
-            ax.plot(C[:,0], C[:,1], label='Spline curve')
-            ax.plot(self.contrl_pts[:,0], self.contrl_pts[:,1], linestyle='--', marker='.', label='CPs')
+            ax.plot(C[:,0], C[:,1])
+            if plotCPs:
+                ax.plot(self.contrl_pts[:,0], self.contrl_pts[:,1], linestyle='--', marker='.')
             if np.any(extra_pts != None):
                 ax.plot(extra_pts[:,0], extra_pts[:,1], linestyle='', marker='.')
             if scaled:
                 ax.axis('scaled')
         elif self.ndims == 3:
-            fig = plt.figure()
             ax = fig.add_subplot(projection='3d')
-            ax.plot3D(C[:,0], C[:,1], C[:,2], label='Spline curve')
-            ax.plot3D(self.contrl_pts[:,0], self.contrl_pts[:,1], self.contrl_pts[:,2], linestyle='--', marker='.', label='CPs')
+            ax.plot3D(C[:,0], C[:,1], C[:,2])
+            if plotCPs:
+                ax.plot3D(self.contrl_pts[:,0], self.contrl_pts[:,1], self.contrl_pts[:,2], linestyle='--', marker='.')
         ax.grid(True)
         if return_axes:
             return fig, ax
@@ -363,13 +374,21 @@ def get_u_bar(Q):
     u_bar[-1] = 1
     return u_bar
 
-def spline_curve_approx(Q, ncp, p, u_bar=None, U=None, gombocX=False, 
-                        rond0=None, plot_flag=True):
+def spline_curve_approx(Q, ncp, p, u_bar=None, U=None, plot_flag=True, 
+                        Uplace='adapt'):
     """
     Spline curve approximation.
+    Creates an approximating spline function given the points Q.
+    The user chooses the number of control points (ncp) and degree (p).
+    The user may also specify the parameterisation of the points (u_bar),
+    otherwise the chordwise method is used. The user may also specify the knot
+    vector, otherwise two methods are available:
+        Uplace='even'  : Even spacing between knots.
+        Uplace='adapt' : Adaptive knot spacing method based on Fast Automatic Knot Placement Method for Accurate B-spline Curve Fitting (https://doi.org/10.1016/j.cad.2020.102905)
+    'adapt' is recommended unless the data is noisy.
     """
     npts = Q.shape[0]
-    m = npts - 1
+    m = npts
     n = ncp - 1
     nk = n + p + 2
 
@@ -377,15 +396,83 @@ def spline_curve_approx(Q, ncp, p, u_bar=None, U=None, gombocX=False,
     if np.all(u_bar == None):
         u_bar = get_u_bar(Q)
 
+    # Determine knot vector (if not provided)
     if np.all(U == None):
-        # Determine knot vector
-        d = (m + 1) / (n - p + 1)
-        U = np.zeros((nk))
-        for j in range(1, n-p+1):
-            i = int(j*d)
-            alpha = j*d - i
-            U[p+j] = (1-alpha) * u_bar[i-1] + alpha * u_bar[i]
-        U[-p-1:] = 1
+        if Uplace == 'adapt':
+            # Compute derivatives up to order of approximating curve
+            Qtemp = Q
+            utemp = u_bar.reshape(-1,1)
+            ders = {"der0" : {"q": Qtemp, "u": utemp}}
+            for k in range(1, p+1):
+                qk = (Qtemp[1:,:] - Qtemp[:-1,:]) / (utemp[1:,:] - utemp[:-1,:])
+                uk = 0.5 * (utemp[1:,:] + utemp[:-1,:])
+                ders["der%i"%(k)] = {"q": qk, "u": uk}
+                Qtemp = qk
+                utemp = uk
+
+            # Calc feature function
+            ui = np.append(np.append(u_bar[0], ders["der%i"%(p)]["u"][1:m-p+1]), u_bar[m-1])
+            qi = ders["der%i"%(p)]["q"][1:m-p+1,:]
+            fi = np.linalg.norm(qi, axis=1) ** (1/p)
+            fi = np.append(np.append(0, fi), 0)
+
+            # Cumulative feature function
+            fj = 0.5 * (fi[1:] + fi[:-1]) * (ui[1:] - ui[:-1])
+            Fi = np.append(0, np.cumsum(fj))
+
+            # Determine deltaF based on requested number of CPs and knots
+            r = nk - p*2
+            deltaF = Fi[-1] / (r - 1)
+            # Adjust cumulative integration in case of any small gaps
+            fj = np.minimum(deltaF, 0.5 * (fi[1:] + fi[:-1]) * (ui[1:] - ui[:-1]))
+            Fi = np.append(0, np.cumsum(fj))
+            deltaF = Fi[-1] / (r - 1)
+
+            # Invert the feature function
+            Finv = interp1d(Fi, ui)
+
+            # Determine the knot vector
+            k = np.arange(1, r+1)
+            even_f_pts = (k - 1) * deltaF
+            if np.isclose(even_f_pts[-1], Fi[-1]):
+                even_f_pts[-1] = Fi[-1]
+            Uk = Finv(even_f_pts)
+            if np.isclose(Uk[0], u_bar[0]):
+                Uk[0] = u_bar[0]
+            if np.isclose(Uk[-1], u_bar[-1]):
+                Uk[-1] = u_bar[-1]
+            U = np.concatenate(([u_bar[0]]*p, Uk, [u_bar[-1]]*p))
+
+            if plot_flag:
+                # Plot derivatives
+                fig, axes = plt.subplots(p+1,1)
+                for k, ax in enumerate(axes):
+                    ax.plot(ders["der%i"%(k)]["u"], ders["der%i"%(k)]["q"])
+                plt.title("Derivatives")
+
+                # Plot feature function
+                fig, ax = plt.subplots()
+                ax.plot(ui, fi)
+                plt.title("Feature function")
+
+                # Plot cumulative feature function and knots
+                fig, ax = plt.subplots()
+                ax.plot(ui, Fi)
+                F = interp1d(ui, Fi)
+                for uk in Uk:
+                    ax.plot([uk,uk], [0, F(uk)], linestyle='--', color='black')
+                    ax.plot([0, uk], [F(uk), F(uk)], linestyle='--', color='black')
+                plt.title("Cumulative feature function + knots")
+
+        elif Uplace == 'even':
+            # Determine knot vector
+            d = (m) / (n - p + 1)
+            U = np.zeros((nk))
+            for j in range(1, n-p+1):
+                i = int(j*d)
+                alpha = j*d - i
+                U[p+j] = (1-alpha) * u_bar[i-1] + alpha * u_bar[i]
+            U[-p-1:] = 1
 
     # Initialise a spline curve with degree and knot vector
     curve = BSplineCurve(p, U)
@@ -393,12 +480,12 @@ def spline_curve_approx(Q, ncp, p, u_bar=None, U=None, gombocX=False,
     curve.weights = np.ones((ncp,1))
 
     # Fill coefficient matrix N using basis functions
-    Nall = np.zeros((m+1, n+1))
-    for k in range(0, m+1):
+    Nall = np.zeros((m, n+1))
+    for k in range(0, m):
         span = curve.find_span(u_bar[k])
         Nall[k, span-p:span+1] = np.squeeze(curve.basis_funs(span, u_bar[k]))
 
-    N = Nall[1:m, 1:n]
+    N = Nall[1:m-1, 1:n]
 
     # Fill Rk vector
     Rk = Q - Nall[:,0].reshape(-1,1) * Q[0,:].reshape(1,-1) - Nall[:,-1].reshape(-1,1) * Q[-1,:].reshape(1,-1)
@@ -412,36 +499,29 @@ def spline_curve_approx(Q, ncp, p, u_bar=None, U=None, gombocX=False,
     P = np.zeros((ncp-2, curve.ndims))
     for i in range(curve.ndims):
         P[:,i] = np.linalg.solve(NtN, R[:,i])
-    # if curve.ndims == 2:
-    #     P = np.stack((np.linalg.solve(NtN, R[:,0]),
-    #                     np.linalg.solve(NtN, R[:,1])), axis=1)
-    # elif curve.ndims == 3:
-    #     P = np.stack((np.linalg.solve(NtN, R[:,0]),
-    #                     np.linalg.solve(NtN, R[:,1]),
-    #                     np.linalg.solve(NtN, R[:,2])), axis=1)
-    P = np.append(np.append(Q[0,:].reshape(1,-1), P, axis=0), Q[-1,:].reshape(1,-1), axis=0)
 
-    if gombocX:
-        X = rond0.u2s(U[p:-p])
-        X = np.insert(X, 1, (2*X[0]+X[1])/3)
-        X = np.insert(X, len(X)-1, (2*X[-1]+X[-2])/3)
-        P[:,0] = X
+    # Add end points
+    P = np.append(
+            np.append(Q[0,:].reshape(1,-1), P, axis=0),
+            Q[-1,:].reshape(1,-1), axis=0)
 
     curve.contrl_pts = P
     curve.Pw = np.hstack((curve.weights * curve.contrl_pts, curve.weights))
 
     if plot_flag:
+        Qnew = Q
         if curve.ndims == 1:
-            Q = np.hstack((u_bar.reshape(-1,1), Q.reshape(-1,1)))
-        curve.plot_curve(method=2, scaled=False, extra_pts=Q)
+            Qnew = np.hstack((u_bar.reshape(-1,1), Q.reshape(-1,1)))
+        fig, ax = curve.plot_curve(method=2, scaled=False, extra_pts=Qnew, return_axes=True)
+        Q_rng = np.max((np.max(Q, axis=0) - np.min(Q, axis=0)))
+        err_max = 1 / Q_rng * np.max(np.linalg.norm(curve.eval_list(u_bar) - Q))
+        err_rms = 1 / Q_rng * np.sqrt(np.sum(np.linalg.norm(curve.eval_list(u_bar) - Q) ** 2) / m)
+        plt.title("Max error=%f, RMS error=%f"%(err_max, err_rms))
 
-    if gombocX:
-        return curve, u_bar
-    else:
-        return curve
+    
+    return curve
 
-
-def spline_curve_interp(Q, p, plot_flag=True):
+def spline_curve_interp(Q, p, u_bar=None, U=None, plot_flag=True):
     """
     Simple linear spline curve interpolation through points.
     Assumes all weights = 1.
@@ -453,14 +533,16 @@ def spline_curve_interp(Q, p, plot_flag=True):
     m = n + p + 1
     nk = m + 1  
 
-    # Determine u_bar
-    u_bar = get_u_bar(Q)
+    if np.all(u_bar == None):
+        # Determine u_bar
+        u_bar = get_u_bar(Q)
 
-    # Determine knot vector U
-    U = np.zeros((nk))
-    U[:p+1] = 0
-    U[m-p:] = 1
-    U[p+1:m-p] = [np.sum(u_bar[j:j+p])/p for j in range(1,n-p+1)]
+    if np.all(U == None):
+        # Determine knot vector U
+        U = np.zeros((nk))
+        U[:p+1] = 0
+        U[m-p:] = 1
+        U[p+1:m-p] = [np.sum(u_bar[j:j+p])/p for j in range(1,n-p+1)]
 
     # Initialise a spline curve with degree and knot vector
     curve = BSplineCurve(p, U)
@@ -474,23 +556,23 @@ def spline_curve_interp(Q, p, plot_flag=True):
         A[span-p:span+1, i] = np.squeeze(curve.basis_funs(span, u_bar[i]))
 
     # Solve linear system of equations for each dimension
-    if curve.ndims == 2:
-        P = np.stack((np.linalg.solve(A.T, Q[:,0]),
-                        np.linalg.solve(A.T, Q[:,1])), axis=1)
-    elif curve.ndims == 3:
-        P = np.stack((np.linalg.solve(A.T, Q[:,0]),
-                        np.linalg.solve(A.T, Q[:,1]),
-                        np.linalg.solve(A.T, Q[:,2])), axis=1)
+    P = np.zeros((ncp, curve.ndims))
+    for i in range(curve.ndims):
+        P[:,i] = np.linalg.solve(A.T, Q[:,i])
 
     curve.contrl_pts = P
     curve.Pw = np.hstack((curve.weights * curve.contrl_pts, curve.weights))
     
     if plot_flag:
-        # fig, ax = curve.plot_curve(return_axes=True)
-        
-        if curve.ndims == 2:
-            random_ind = np.linspace(0, len(Q)-1, 101).astype(int)
-            curve.plot_curve(method=2, extra_pts=Q[random_ind, :])
+
+        if curve.ndims == 1:
+            Qplot = np.hstack((u_bar.reshape(-1,1), Q))
+        else:
+            Qplot = deepcopy(Q)
+
+        # if curve.ndims == 2:
+        # random_ind = np.linspace(0, len(Q)-1, 101).astype(int)
+        curve.plot_curve(method=2, extra_pts=Qplot)
             # ax.scatter(Q[:,0], Q[:,1], marker='.', label='Original pts')
             # ax.legend()
     return curve
