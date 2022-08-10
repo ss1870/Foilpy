@@ -1,5 +1,5 @@
 #%%
-from foilpy.splines import BSplineCurve, parameterise_curve, distribute_knots
+from foilpy.splines import BSplineCurve, parameterise_curve, distribute_knots, curve_interp
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -73,7 +73,7 @@ class SplineSurface(BSplineCurve):
             S[i] = np.matmul(np.matmul(Nu.T, P_temp[:,:,i]), Nv)
         return S
 
-    def grid_plot(self, npts=100):
+    def grid_plot(self, scatter_pts=None, npts=100):
         fig, ax = plt.subplots()
         ax = fig.add_subplot(projection='3d')
         u = np.linspace(0,1,npts)
@@ -85,6 +85,9 @@ class SplineSurface(BSplineCurve):
             ax.plot3D(isogrid_pts[i,:,0], isogrid_pts[i,:,1], isogrid_pts[i,:,2], color='black')
         for j in range(len(v)):
             ax.plot3D(isogrid_pts[:,j,0], isogrid_pts[:,j,1], isogrid_pts[:,j,2], color='black')
+        if np.any(scatter_pts != None):
+            ax.scatter(scatter_pts[:,:,0],scatter_pts[:,:,1],scatter_pts[:,:,2],marker='o')
+
 
 def parameterise_surf(points, method='centripetal'):
     """
@@ -107,6 +110,45 @@ def parameterise_surf(points, method='centripetal'):
     return u_bar, v_bar
 
 
+def surf_interp(Q, p, q, u_bar=None, v_bar=None, U=None, V=None, 
+                param_method='centripetal', plot_flag=True):
+    """
+    Interpolate surface.
+    """
+    npts_u = Q.shape[0]
+    npts_v = Q.shape[1]
+    nkts_u = npts_u + p + 1
+    nkts_v = npts_v + q + 1
+
+    # Parameterise surface of points
+    if np.any(u_bar == None) or np.any(v_bar == None):
+        u_bar, v_bar = parameterise_surf(points, method=param_method)
+
+    # Compute knot vector
+    if np.any(U == None) or np.any(V == None):
+        U = distribute_knots(u_bar, p, nkts_u, method='even_interp')
+        V = distribute_knots(v_bar, q, nkts_v, method='even_interp')
+
+    ## Interpolate surface pts
+    # Loop through v direction, interpolate each curve for fixed v
+    P_interp1 = np.zeros((npts_u, npts_v, 3))
+    for i in range(len(v_bar)):
+        temp_crv = curve_interp(points[:,i,:], p, u_bar, U, plot_flag=False)
+        P_interp1[:,i,:] = temp_crv.contrl_pts
+
+    # Loop through u direction, interpolate each set of CPs for fixed u
+    P_interp2 = np.zeros((npts_u, npts_v, 3))
+    for j in range(len(u_bar)):
+        temp_crv = curve_interp(P_interp1[j,:,:], q, v_bar, V, plot_flag=False)
+        P_interp2[j,:,:] = temp_crv.contrl_pts
+
+    surf = SplineSurface(p,q,U,V,P_interp2)
+    
+    if plot_flag:
+        surf.grid_plot(scatter_pts=Q, npts=20)
+    return surf
+
+
 points = (((-5, -5, 0), (-2.5, -5, 0), (0, -5, 0), (2.5, -5, 0), (5, -5, 0), (7.5, -5, 0), (10, -5, 0)),
           ((-5, 0, 3), (-2.5, 0, 3), (0, 0, 3), (2.5, 0, 3), (5, 0, 3), (7.5, 0, 3), (10, 0, 3)),
           ((-5, 5, 0), (-2.5, 5, 0), (0, 5, 0), (2.5, 5, 0), (5, 5, 0), (7.5, 5, 0), (10, 5, 0)),
@@ -116,23 +158,12 @@ points = (((-5, -5, 0), (-2.5, -5, 0), (0, -5, 0), (2.5, -5, 0), (5, -5, 0), (7.
 
 %matplotlib widget
 points = np.asarray(points)
-npts_u = points.shape[0]
-npts_v = points.shape[1]
 p = 3
 q = 3
 
-# Parameterise surface of points
-u_bar, v_bar = parameterise_surf(points, 'Fang')
+surf = surf_interp(points, p, q, param_method='Fang', plot_flag=True)
 
-# Determine knot vectors U, V - for interpolation
-nkts_u = npts_u + p + 1
-nkts_v = npts_v + q + 1
-U = distribute_knots(u_bar, p, nkts_u, method='even_interp')
-V = distribute_knots(v_bar, q, nkts_v, method='even_interp')
 
-surf = SplineSurface(p,q,U,V,points)
-surf.eval_surf(0.2,0.5)
-surf.grid_plot(npts=20)
 
 
 

@@ -600,7 +600,8 @@ def curve_approx(Q, ncp, p, u_bar=None, U=None, plot_flag=True,
     return curve
 
 
-def curve_interp(Q, p, u_bar=None, U=None, plot_flag=True):
+def curve_interp(Q, p, u_bar=None, U=None, param_method='centripetal',
+                    plot_flag=True):
     """
     Simple linear spline curve interpolation through points.
     Assumes all weights = 1.
@@ -614,7 +615,7 @@ def curve_interp(Q, p, u_bar=None, U=None, plot_flag=True):
 
     if np.all(u_bar == None):
         # Determine u_bar
-        u_bar = parameterise_curve(Q)
+        u_bar = parameterise_curve(Q, method=param_method)
 
     if np.all(U == None):
         # Determine knot vector U
