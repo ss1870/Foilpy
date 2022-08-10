@@ -11,6 +11,7 @@ RE = 5 * 0.2 * 1025 / 0.00126
 wing = AX_wings.bsc_810(RE, nsegs=40, plot_flag=False)
 ## Define coords and non-dimensional arc length u
 coords = wing.afoil_table['naca1214']['coords']
+coords = np.delete(coords,999,axis=0)
 s = np.append(0, np.cumsum(np.sqrt(np.sum(np.diff(coords, axis=0) ** 2, axis=1))))
 norm_s = s / s[-1]
 interper = interp1d(norm_s, coords, axis=0)
@@ -28,9 +29,12 @@ nk = m + 1      # no of knots
 
 # First do linear solve of interpolation to get a starting point
 Q = interper(np.linspace(0,1,ncp))
-curve = fsp.spline_curve_interp(Q, p, plot_flag=True)
+curve = fsp.curve_interp(Q, p, plot_flag=True)
 
+curve = fsp.curve_approx(coords, 31, p, u_bar=None, U=None, plot_flag=True, 
+                        knot_spacing='adaptive', param_method='Fang')
 
+a=rgbrhj
 ## set up optimisation
 
 ## Wrapper

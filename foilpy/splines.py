@@ -8,38 +8,44 @@ from copy import deepcopy
 class BSplineCurve():
     """
     B-Spline/NURBS curve class.
+    Nomenclature:
+        - Curve parameterised on u
+        - Control points P_i
+            - i = 0,...,n
+            - npts in u is n+1, npts in v is m+1
+        - u direction:
+            - degree = p
+            - knot vector = U = [[0]*(p+1), u_p+1, ..., u_r-p-1, [1]*(p+1)]
+            - no knots = r+1, where r = n+p+1
     """
     def __init__(self, p, U, w=None, P=None):
-        self.degree = p     # Degree
+        self.p = p     # Degree
         self.U = U          # Knot vector
-        self.knots = np.array(self.U[self.degree:-self.degree])
-        self.m = len(U) - 1 # No of knots = m + 1
-        self.n = self.m - self.degree - 1
+        self.knotsU = np.array(self.U[self.p:-self.p])
+        self.r = len(U) - 1 # No of knots = r + 1
+        self.n = self.r - self.p - 1
         self.Np = self.n + 1
-        self.M = None
-        self.def_M()
-        if np.any(P != None):
+        self.M_u = self.def_m_matrix(self.knotsU, self.p)
+        if np.any(P is not None):
             self.contrl_pts = P # Control points
-            n = len(P) - 1 # No of control points = n+1
-            assert n == self.m - self.degree - 1
-            self.n = n
+            assert P.shape[0] - 1 == self.r - self.p - 1
             self.ndims = self.contrl_pts.shape[1]
             if np.any(w != None):
                 # if weights are present then this is a NURBS curve
                 self.weights = w    # Weights
             else:
-                self.weights = np.ones((n+1,1))
+                self.weights = np.ones((self.n+1,1))
             self.Pw = np.hstack((self.weights * self.contrl_pts, self.weights))
         
-    def def_M(self):
+    def def_m_matrix(self, knots, p):
         """
         Define series of M matrices for each spline segment.
         Used for evaluating points and derivatives.
         http://and-what-happened.blogspot.com/2012/07/evaluating-b-splines-aka-basis-splines.html
         """
-        if self.degree == 3:
-            nseg = len(self.knots) - 1
-            kv = np.append(np.append([self.knots[0]]*2, self.knots), [self.knots[-1]]*2)
+        if p == 3:
+            nseg = len(knots) - 1
+            kv = np.append(np.append([knots[0]]*2, knots), [knots[-1]]*2)
 
             M = np.zeros((4,4,nseg))
             for i in range(nseg):
@@ -70,8 +76,9 @@ class BSplineCurve():
                 M[3,1,i] = -(((v3*v0*a)+(v4*v1*b))*v3)
                 M[3,2,i] = (v1*v1*v3*b)
                 M[3,3,i] = 0
-
-            self.M = M
+        else:
+            raise Exception("Can only compute M matrices for order = 3.")
+        return M
 
     def find_span(self, u): # A2.1
         """
@@ -83,7 +90,7 @@ class BSplineCurve():
             raise Exception("Query u must be greater than U[0](=%d)"%self.U[0])
         if u == self.U[self.n+1]:
             return self.n
-        low = self.degree
+        low = self.p
         high = self.n + 1
         mid = int((low + high) / 2)
         counter = 0
@@ -104,16 +111,16 @@ class BSplineCurve():
         Compute the non-vanishing basis functions
         """
         N = [1.0]
-        left = np.zeros((self.degree+1))
-        right = np.zeros((self.degree+1))
+        left = np.zeros((self.p+1))
+        right = np.zeros((self.p+1))
         calc_ders = False
         if ders > 0:
             n = ders
             calc_ders = True
         if calc_ders:
-            ndu = np.zeros((self.degree+1, self.degree+1))
+            ndu = np.zeros((self.p+1, self.p+1))
             ndu[0,0] = 1
-        for j in range(1, self.degree+1):
+        for j in range(1, self.p+1):
             left[j] = u - self.U[i+1-j]
             right[j] =  self.U[i+j] - u
             saved = 0.0
@@ -133,18 +140,18 @@ class BSplineCurve():
             if calc_ders:
                 ndu[j,j] = saved1
         if calc_ders:
-            ders = np.zeros((n+1, self.degree+1))
-            for j in range(self.degree+1):
-                ders[0,j] = ndu[j,self.degree]
-            a = np.zeros((n+1, self.degree+1))
-            for r in range(self.degree+1):
+            ders = np.zeros((n+1, self.p+1))
+            for j in range(self.p+1):
+                ders[0,j] = ndu[j,self.p]
+            a = np.zeros((n+1, self.p+1))
+            for r in range(self.p+1):
                 s1=0
                 s2=1
                 a[0,0] = 1
                 for k in range(1, n+1):
                     d = 0.0
                     rk = r - k
-                    pk = self.degree - k
+                    pk = self.p - k
                     if r >= k:
                         a[s2,0] = a[s1,0] / ndu[pk+1,rk]
                         d = a[s2,0] * ndu[rk,pk]
@@ -155,7 +162,7 @@ class BSplineCurve():
                     if r <= pk+1:
                         j2 = k-1
                     else:
-                        j2 = self.degree - r
+                        j2 = self.p - r
                     for j in range(j1, j2+1):
                         a[s2,j] = (a[s1,j] - a[s1,j-1]) / ndu[pk+1,rk+j]
                         d += a[s2,j] * ndu[rk+j,pk]
@@ -166,11 +173,11 @@ class BSplineCurve():
                     j = s1
                     s1 = s2
                     s2 = j
-            r = self.degree
+            r = self.p
             for k in range(1,n+1):
-                for j in range(self.degree+1):
+                for j in range(self.p+1):
                     ders[k,j] *= r
-                    r *= self.degree - k
+                    r *= self.p - k
 
         if calc_ders:
             return np.array(N).reshape(-1,1), ders
@@ -181,7 +188,7 @@ class BSplineCurve():
         """
         Compute Nip for a single basis function
         """
-        if (i == 0 and u == self.U[0]) or (i == self.m-p-1 and u ==self.U[self.m]):
+        if (i == 0 and u == self.U[0]) or (i == self.r-p-1 and u ==self.U[self.r]):
             Nip = 1.0
             return Nip
         if u < self.U[i] or u >= self.U[i+p+1]:
@@ -209,6 +216,17 @@ class BSplineCurve():
         Nip = N[0]
         return Nip
 
+    def find_span2(self, knots, u):
+        """
+        Find span for list of knots, rather than full knot vector.
+        """
+        temp = knots < u
+        if np.all(temp == False):
+            span = 0
+        else:
+            span = np.where(knots < u)[0][-1]
+        return span
+
     def eval_curve(self, u, method=2, der1=False, der2=False):
         """
         Evaluate curve at single point u on non-dimensional arc
@@ -219,17 +237,13 @@ class BSplineCurve():
         if method == 1:
             span = self.find_span(u)
             N = self.basis_funs(span, u)
-            Cw = np.sum(np.tile(N, (1,self.ndims+1)) * self.Pw[span-self.degree:span+1,:], axis=0)
+            Cw = np.sum(np.tile(N, (1,self.ndims+1)) * self.Pw[span-self.p:span+1,:], axis=0)
             
-        elif method == 2 and self.degree==3:
+        elif method == 2 and self.p==3:
             # find which span u is in
-            temp = self.knots < u
-            if np.all(temp == False):
-                span = 0
-            else:
-                span = np.where(self.knots < u)[0][-1]
+            span = self.find_span2(self.knotsU, u)
 
-            s = u - self.knots[span]
+            s = u - self.knotsU[span]
             s_vec = np.array([s**3, s**2, s, 1])
 
             cpID = [span, span+4]
@@ -237,7 +251,7 @@ class BSplineCurve():
                 cpID = [0, 4]
             if cpID[1] > self.Np - 1:
                 cpID = [self.Np-4, self.Np]
-            MCw = np.matmul(self.M[:,:,span], self.Pw[cpID[0]:cpID[1],:])
+            MCw = np.matmul(self.M_u[:,:,span], self.Pw[cpID[0]:cpID[1],:])
             Cw = np.matmul(s_vec, MCw)
 
         C = Cw[:self.ndims]/Cw[self.ndims]
@@ -262,16 +276,16 @@ class BSplineCurve():
         """
         if hasattr(self, 'weights'):
             raise Exception("Evaluating derivative not work for NURBS.")
-        du = min(d, self.degree)
+        du = min(d, self.p)
         CK = np.zeros((du+1, 1))
-        for k in range(self.degree+1, d+1):
+        for k in range(self.p+1, d+1):
             CK[k,:] = 0
         span = self.find_span(u)
         N, nders = self.basis_funs(span, u, ders=d)
         for k in range(du+1):
             CK[k,:] = 0
-            for j in range(self.degree+1):
-                CK[k,:] += nders[k,j] #* self.contrl_pts[span-self.degree+j,:]
+            for j in range(self.p+1):
+                CK[k,:] += nders[k,j] #* self.contrl_pts[span-self.p+j,:]
 
     def eval_list(self, u, method=2):
         """
@@ -317,7 +331,7 @@ class BSplineCurve():
         N = np.zeros((self.n+1, len(u_all)))
         for j, u in enumerate(u_all):
             for i in range(self.n+1):
-                N[i,j] = self.one_basis_fun(self.degree, i, u)
+                N[i,j] = self.one_basis_fun(self.p, i, u)
 
         plt.plot(u_all, N.T)
         return N
@@ -336,24 +350,26 @@ class BSplineCurve():
 
             if rond != None:
                 x = rond.u2s(u_all)
-                Px = rond.u2s(self.knots)
+                Px = rond.u2s(self.knotsU)
             else:
                 x = u_all
-                Px = self.knots
+                Px = self.knotsU
             Px = np.insert(Px, 1, (2*Px[0]+Px[1])/3)
             Px = np.insert(Px, len(Px)-1, (2*Px[-1]+Px[-2])/3)
+            if np.any(extra_pts != None):
+                ax.plot(extra_pts[:,0], extra_pts[:,1], linestyle='', marker='.')
             ax.plot(x, C[:,0])
 
             if plotCPs:
                 ax.plot(Px, self.contrl_pts[:,0], linestyle='--', marker='.')
+
+        elif self.ndims == 2:
             if np.any(extra_pts != None):
                 ax.plot(extra_pts[:,0], extra_pts[:,1], linestyle='', marker='.')
-        elif self.ndims == 2:
             ax.plot(C[:,0], C[:,1])
             if plotCPs:
                 ax.plot(self.contrl_pts[:,0], self.contrl_pts[:,1], linestyle='--', marker='.')
-            if np.any(extra_pts != None):
-                ax.plot(extra_pts[:,0], extra_pts[:,1], linestyle='', marker='.')
+
             if scaled:
                 ax.axis('scaled')
         elif self.ndims == 3:
@@ -720,15 +736,15 @@ def wrapper(X, opti_options):
 
 ## Check method1 and method2 produce same basis functions
 # u = 2.5
-# temp = np.array(curve.knots) < u
+# temp = np.array(curve.knotsU) < u
 # if np.all(temp == False):
 #     span = 0
 # else:
-#     span = np.where(curve.knots < u)[0][-1]
+#     span = np.where(curve.knotsU < u)[0][-1]
 
-# s = u - curve.knots[span]
+# s = u - curve.knotsU[span]
 # s_vec = np.array([s**3, s**2, s, 1])
-# N = np.matmul(s_vec, curve.M[:,:,span])
+# N = np.matmul(s_vec, curve.M_u[:,:,span])
 # N1 = curve.basis_funs(curve.find_span(u), u, ders=0)
 # print(N, N1)
 
