@@ -549,6 +549,8 @@ def curve_approx(Q, ncp, p, u_bar=None, U=None, plot_flag=True,
 
     # Determine knot vector (if not provided)
     if np.all(U == None):
+        if np.all(np.isclose(np.diff(Q, axis=0) , 0)):
+            knot_spacing = 'even_approx'
         U = distribute_knots(u_bar, p, n_knts, Q=Q, method=knot_spacing, 
                                 plot_flag=plot_flag)
 
@@ -557,31 +559,34 @@ def curve_approx(Q, ncp, p, u_bar=None, U=None, plot_flag=True,
     curve.ndims = Q.shape[1]
     curve.weights = np.ones((ncp,1))
 
-    # Fill coefficient matrix N using basis functions
-    Nall = np.zeros((m, n+1))
-    for k in range(0, m):
-        span = curve.find_span(u_bar[k])
-        Nall[k, span-p:span+1] = np.squeeze(curve.basis_funs(span, u_bar[k]))
+    if np.all(np.isclose(np.diff(Q, axis=0) , 0)):
+        P = Q[0] * np.ones((ncp,1))
+    else:
+        # Fill coefficient matrix N using basis functions
+        Nall = np.zeros((m, n+1))
+        for k in range(0, m):
+            span = curve.find_span(u_bar[k])
+            Nall[k, span-p:span+1] = np.squeeze(curve.basis_funs(span, u_bar[k]))
 
-    N = Nall[1:m-1, 1:n]
+        N = Nall[1:m-1, 1:n]
 
-    # Fill Rk vector
-    Rk = Q - Nall[:,0].reshape(-1,1) * Q[0,:].reshape(1,-1) - Nall[:,-1].reshape(-1,1) * Q[-1,:].reshape(1,-1)
+        # Fill Rk vector
+        Rk = Q - Nall[:,0].reshape(-1,1) * Q[0,:].reshape(1,-1) - Nall[:,-1].reshape(-1,1) * Q[-1,:].reshape(1,-1)
 
-    # Define R vector
-    R = np.matmul(N.T, Rk[1:-1,:])
+        # Define R vector
+        R = np.matmul(N.T, Rk[1:-1,:])
 
-    NtN = np.matmul(N.T, N)
+        NtN = np.matmul(N.T, N)
 
-    # Solve linear system of equations for each dimension
-    P = np.zeros((ncp-2, curve.ndims))
-    for i in range(curve.ndims):
-        P[:,i] = np.linalg.solve(NtN, R[:,i])
+        # Solve linear system of equations for each dimension
+        P = np.zeros((ncp-2, curve.ndims))
+        for i in range(curve.ndims):
+            P[:,i] = np.linalg.solve(NtN, R[:,i])
 
-    # Add end points
-    P = np.append(
-            np.append(Q[0,:].reshape(1,-1), P, axis=0),
-            Q[-1,:].reshape(1,-1), axis=0)
+        # Add end points
+        P = np.append(
+                np.append(Q[0,:].reshape(1,-1), P, axis=0),
+                Q[-1,:].reshape(1,-1), axis=0)
 
     curve.contrl_pts = P
     curve.Pw = np.hstack((curve.weights * curve.contrl_pts, curve.weights))
@@ -591,7 +596,7 @@ def curve_approx(Q, ncp, p, u_bar=None, U=None, plot_flag=True,
         if curve.ndims == 1:
             Qnew = np.hstack((u_bar.reshape(-1,1), Q.reshape(-1,1)))
         fig, ax = curve.plot_curve(method=2, scaled=False, extra_pts=Qnew, return_axes=True)
-        Q_rng = np.max((np.max(Q, axis=0) - np.min(Q, axis=0)))
+        Q_rng = np.max((np.max(Q, axis=0) - np.min(Q, axis=0))) + 1e-12
         err_max = 1 / Q_rng * np.max(np.linalg.norm(curve.eval_list(u_bar) - Q))
         err_rms = 1 / Q_rng * np.sqrt(np.sum(np.linalg.norm(curve.eval_list(u_bar) - Q) ** 2) / m)
         plt.title("Max error=%f, RMS error=%f"%(err_max, err_rms))
