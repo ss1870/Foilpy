@@ -80,22 +80,22 @@ class BSplineCurve():
             raise Exception("Can only compute M matrices for order = 3.")
         return M
 
-    def find_span(self, u): # A2.1
+    def find_span(self, u, U, p, n): # A2.1
         """
         Determine the knot span index
         """
-        if u > self.U[-1]:
-            raise Exception("Query u must be less than U[end](=%d)"%self.U[-1])
-        if u < self.U[0]:
-            raise Exception("Query u must be greater than U[0](=%d)"%self.U[0])
-        if u == self.U[self.n+1]:
-            return self.n
-        low = self.p
-        high = self.n + 1
+        if u > U[-1]:
+            raise Exception("Query u must be less than U[end](=%d)"%U[-1])
+        if u < U[0]:
+            raise Exception("Query u must be greater than U[0](=%d)"%U[0])
+        if u == U[n+1]:
+            return n
+        low = p
+        high = n + 1
         mid = int((low + high) / 2)
         counter = 0
-        while (u < self.U[mid] or u >= self.U[mid+1]) and counter < 1000:
-            if u < self.U[mid]:
+        while (u < U[mid] or u >= U[mid+1]) and counter < 1000:
+            if u < U[mid]:
                 high = mid
             else:
                 low = mid
@@ -106,23 +106,23 @@ class BSplineCurve():
         
         return mid
 
-    def basis_funs(self, i, u, ders=0): # A2.2
+    def basis_funs(self, i, u, U, p, ders=0): # A2.2
         """
         Compute the non-vanishing basis functions
         """
         N = [1.0]
-        left = np.zeros((self.p+1))
-        right = np.zeros((self.p+1))
+        left = np.zeros((p+1))
+        right = np.zeros((p+1))
         calc_ders = False
         if ders > 0:
             n = ders
             calc_ders = True
         if calc_ders:
-            ndu = np.zeros((self.p+1, self.p+1))
+            ndu = np.zeros((p+1, p+1))
             ndu[0,0] = 1
-        for j in range(1, self.p+1):
-            left[j] = u - self.U[i+1-j]
-            right[j] =  self.U[i+j] - u
+        for j in range(1, p+1):
+            left[j] = u - U[i+1-j]
+            right[j] =  U[i+j] - u
             saved = 0.0
             if calc_ders: 
                 saved1 = 0.0
@@ -140,18 +140,18 @@ class BSplineCurve():
             if calc_ders:
                 ndu[j,j] = saved1
         if calc_ders:
-            ders = np.zeros((n+1, self.p+1))
-            for j in range(self.p+1):
-                ders[0,j] = ndu[j,self.p]
-            a = np.zeros((n+1, self.p+1))
-            for r in range(self.p+1):
+            ders = np.zeros((n+1, p+1))
+            for j in range(p+1):
+                ders[0,j] = ndu[j,p]
+            a = np.zeros((n+1, p+1))
+            for r in range(p+1):
                 s1=0
                 s2=1
                 a[0,0] = 1
                 for k in range(1, n+1):
                     d = 0.0
                     rk = r - k
-                    pk = self.p - k
+                    pk = p - k
                     if r >= k:
                         a[s2,0] = a[s1,0] / ndu[pk+1,rk]
                         d = a[s2,0] * ndu[rk,pk]
@@ -162,7 +162,7 @@ class BSplineCurve():
                     if r <= pk+1:
                         j2 = k-1
                     else:
-                        j2 = self.p - r
+                        j2 = p - r
                     for j in range(j1, j2+1):
                         a[s2,j] = (a[s1,j] - a[s1,j-1]) / ndu[pk+1,rk+j]
                         d += a[s2,j] * ndu[rk+j,pk]
@@ -173,11 +173,11 @@ class BSplineCurve():
                     j = s1
                     s1 = s2
                     s2 = j
-            r = self.p
+            r = p
             for k in range(1,n+1):
-                for j in range(self.p+1):
+                for j in range(p+1):
                     ders[k,j] *= r
-                    r *= self.p - k
+                    r *= p - k
 
         if calc_ders:
             return np.array(N).reshape(-1,1), ders
@@ -235,8 +235,8 @@ class BSplineCurve():
             raise Exception("Error: derivative options only for eval method=2.")
 
         if method == 1:
-            span = self.find_span(u)
-            N = self.basis_funs(span, u)
+            span = self.find_span(u, self.U, self.p, self.n)
+            N = self.basis_funs(span, u, self.U, self.p)
             Cw = np.sum(np.tile(N, (1,self.ndims+1)) * self.Pw[span-self.p:span+1,:], axis=0)
             
         elif method == 2 and self.p==3:
@@ -280,8 +280,8 @@ class BSplineCurve():
         CK = np.zeros((du+1, 1))
         for k in range(self.p+1, d+1):
             CK[k,:] = 0
-        span = self.find_span(u)
-        N, nders = self.basis_funs(span, u, ders=d)
+        span = self.find_span(u, self.U, self.p, self.n)
+        N, nders = self.basis_funs(span, u, self.U, self.p, ders=d)
         for k in range(du+1):
             CK[k,:] = 0
             for j in range(self.p+1):
@@ -346,6 +346,8 @@ class BSplineCurve():
 
         if fig == None:
             fig, ax = plt.subplots()
+            if self.ndims == 3:
+                ax = fig.add_subplot(projection='3d')
         if self.ndims == 1:
 
             if rond != None:
@@ -373,8 +375,9 @@ class BSplineCurve():
             if scaled:
                 ax.axis('scaled')
         elif self.ndims == 3:
-            ax = fig.add_subplot(projection='3d')
             ax.plot3D(C[:,0], C[:,1], C[:,2])
+            if np.any(extra_pts != None):
+                ax.plot3D(extra_pts[:,0], extra_pts[:,1], extra_pts[:,2], linestyle='', marker='.', color='black')
             if plotCPs:
                 ax.plot3D(self.contrl_pts[:,0], self.contrl_pts[:,1], self.contrl_pts[:,2], linestyle='--', marker='.')
         ax.grid(True)
@@ -425,7 +428,7 @@ def parameterise_curve(Q, method='centripetal', plot_flag=False):
     return u_bar
 
 
-def distribute_knots(u_bar, p, n_knts, Q=None, method='even_interp', 
+def distribute_knots(u_bar, p, n_knts, Q=None, method='even_interp',
                         plot_flag=False):
     """
     Determines knot spacing for a given set of points
@@ -449,71 +452,9 @@ def distribute_knots(u_bar, p, n_knts, Q=None, method='even_interp',
             U[p+j] = (1-alpha) * u_bar[i-1] + alpha * u_bar[i]
         U[-p-1:] = 1
     elif method == 'adaptive':
-        m = Q.shape[0]
-        # Compute derivatives up to order of approximating curve
-        Qtemp = Q
-        utemp = u_bar.reshape(-1,1)
-        ders = {"der0" : {"q": Qtemp, "u": utemp}}
-        for k in range(1, p+1):
-            qk = (Qtemp[1:,:] - Qtemp[:-1,:]) / (utemp[1:,:] - utemp[:-1,:])
-            uk = 0.5 * (utemp[1:,:] + utemp[:-1,:])
-            ders["der%i"%(k)] = {"q": qk, "u": uk}
-            Qtemp = qk
-            utemp = uk
+        Fi, fi, ui = calc_feature_func(Q, u_bar, p, n_knts, plot_flag=plot_flag)
+        U = knots_from_feature(Fi, fi, ui, u_bar, n_knts, p, plot_flag=plot_flag)
 
-        # Calc feature function
-        ui = np.append(np.append(u_bar[0], ders["der%i"%(p)]["u"][1:m-p+1]), u_bar[m-1])
-        qi = ders["der%i"%(p)]["q"][1:m-p+1,:]
-        fi = np.linalg.norm(qi, axis=1) ** (1/p)
-        fi = np.append(np.append(0, fi), 0)
-
-        # Cumulative feature function
-        fj = 0.5 * (fi[1:] + fi[:-1]) * (ui[1:] - ui[:-1])
-        Fi = np.append(0, np.cumsum(fj))
-
-        # Determine deltaF based on requested number of CPs and knots
-        n_iknts = n_knts - p*2
-        deltaF = Fi[-1] / (n_iknts - 1)
-        # Adjust cumulative integration in case of any small gaps
-        fj = np.minimum(deltaF, 0.5 * (fi[1:] + fi[:-1]) * (ui[1:] - ui[:-1]))
-        Fi = np.append(0, np.cumsum(fj))
-        deltaF = Fi[-1] / (n_iknts - 1)
-
-        # Invert the feature function
-        Finv = interp1d(Fi, ui)
-
-        # Determine the knot vector
-        k = np.arange(1, n_iknts+1)
-        even_f_pts = (k - 1) * deltaF
-        if np.isclose(even_f_pts[-1], Fi[-1]):
-            even_f_pts[-1] = Fi[-1]
-        Uk = Finv(even_f_pts)
-        if np.isclose(Uk[0], u_bar[0]):
-            Uk[0] = u_bar[0]
-        if np.isclose(Uk[-1], u_bar[-1]):
-            Uk[-1] = u_bar[-1]
-        U = np.concatenate(([u_bar[0]]*p, Uk, [u_bar[-1]]*p))
-
-        if plot_flag:
-            # Plot derivatives
-            fig, axes = plt.subplots(p+1,1)
-            for k, ax in enumerate(axes):
-                ax.plot(ders["der%i"%(k)]["u"], ders["der%i"%(k)]["q"])
-            plt.title("Derivatives")
-
-            # Plot feature function
-            fig, ax = plt.subplots()
-            ax.plot(ui, fi)
-            plt.title("Feature function")
-
-            # Plot cumulative feature function and knots
-            fig, ax = plt.subplots()
-            ax.plot(ui, Fi)
-            F = interp1d(ui, Fi)
-            for uk in Uk:
-                ax.plot([uk,uk], [0, F(uk)], linestyle='--', color='black')
-                ax.plot([0, uk], [F(uk), F(uk)], linestyle='--', color='black')
-            plt.title("Cumulative feature function + knots")
     else:
         raise Exception("Knot spacing method not recognised: " + method)
 
@@ -523,7 +464,89 @@ def distribute_knots(u_bar, p, n_knts, Q=None, method='even_interp',
     return U
 
 
-def curve_approx(Q, ncp, p, u_bar=None, U=None, plot_flag=True, 
+def calc_feature_func(Q, u_bar, p, n_knts, plot_flag=False):
+    m = Q.shape[0]
+    # Compute derivatives up to order of approximating curve
+    Qtemp = Q
+    utemp = u_bar.reshape(-1,1)
+    ders = {"der0" : {"q": Qtemp, "u": utemp}}
+    for k in range(1, p+1):
+        qk = (Qtemp[1:,:] - Qtemp[:-1,:]) / (utemp[1:,:] - utemp[:-1,:])
+        uk = 0.5 * (utemp[1:,:] + utemp[:-1,:])
+        ders["der%i"%(k)] = {"q": qk, "u": uk}
+        Qtemp = qk
+        utemp = uk
+
+    # Calc feature function
+    ui = np.append(np.append(u_bar[0], ders["der%i"%(p)]["u"][1:m-p+1]), u_bar[m-1])
+    qi = ders["der%i"%(p)]["q"][1:m-p+1,:]
+    fi = np.linalg.norm(qi, axis=1) ** (1/p)
+    fi = np.append(np.append(0, fi), 0)
+
+    # Cumulative feature function
+    fj = 0.5 * (fi[1:] + fi[:-1]) * (ui[1:] - ui[:-1])
+    Fi = np.append(0, np.cumsum(fj))
+
+    # Determine deltaF based on requested number of CPs and knots
+    n_iknts = n_knts - p*2
+    deltaF = Fi[-1] / (n_iknts - 1)
+    # Adjust cumulative integration in case of any small gaps
+    fj = np.minimum(deltaF, 0.5 * (fi[1:] + fi[:-1]) * (ui[1:] - ui[:-1]))
+    Fi = np.append(0, np.cumsum(fj))
+
+    if plot_flag:
+        # Plot derivatives
+        fig, axes = plt.subplots(p+1,1)
+        for k, ax in enumerate(axes):
+            ax.plot(ders["der%i"%(k)]["u"], ders["der%i"%(k)]["q"])
+        plt.title("Derivatives")
+
+        # Plot feature function
+        fig, ax = plt.subplots()
+        ax.plot(ui, fi, marker='.')
+        plt.title("Feature function")
+
+        # Plot cumulative feature function and knots
+        fig, ax = plt.subplots()
+        ax.plot(ui, Fi)
+        plt.title("Cumulative feature function")
+    
+    return Fi, fi, ui
+
+
+def knots_from_feature(Fi, fi, ui, u_bar, n_knts, p, plot_flag=False):
+    n_iknts = n_knts - p*2
+    deltaF = Fi[-1] / (n_iknts - 1)
+
+    # Invert the feature function
+    Finv = interp1d(Fi, ui)
+
+    # Determine the knot vector
+    k = np.arange(1, n_iknts+1)
+    even_f_pts = (k - 1) * deltaF
+    if np.isclose(even_f_pts[-1], Fi[-1]):
+        even_f_pts[-1] = Fi[-1]
+    Uk = Finv(even_f_pts)
+    if np.isclose(Uk[0], u_bar[0]):
+        Uk[0] = u_bar[0]
+    if np.isclose(Uk[-1], u_bar[-1]):
+        Uk[-1] = u_bar[-1]
+    U = np.concatenate(([u_bar[0]]*p, Uk, [u_bar[-1]]*p))
+
+    if plot_flag:
+        # Plot cumulative feature function and knots
+        fig, ax = plt.subplots()
+        ax.plot(ui, Fi)
+        F = interp1d(ui, Fi)
+        for uk in Uk:
+            ax.plot([uk,uk], [0, F(uk)], linestyle='--', color='black')
+            ax.plot([0, uk], [F(uk), F(uk)], linestyle='--', color='black')
+        plt.title("Cumulative feature function + knots")
+
+    return U
+
+
+def curve_approx(Q, ncp, p, u_bar=None, U=None, plot_flag=True,
                         knot_spacing='adaptive', param_method='centripetal'):
     """
     Spline curve approximation.
@@ -565,8 +588,8 @@ def curve_approx(Q, ncp, p, u_bar=None, U=None, plot_flag=True,
         # Fill coefficient matrix N using basis functions
         Nall = np.zeros((m, n+1))
         for k in range(0, m):
-            span = curve.find_span(u_bar[k])
-            Nall[k, span-p:span+1] = np.squeeze(curve.basis_funs(span, u_bar[k]))
+            span = curve.find_span(u_bar[k], curve.U, p, n)
+            Nall[k, span-p:span+1] = np.squeeze(curve.basis_funs(span, u_bar[k], U, p))
 
         N = Nall[1:m-1, 1:n]
 
@@ -634,8 +657,8 @@ def curve_interp(Q, p, u_bar=None, U=None, param_method='centripetal',
     # Fill coefficient matrix A using basis functions
     A = np.zeros((n+1, n+1))
     for i in range(n+1):
-        span = curve.find_span(u_bar[i])
-        A[span-p:span+1, i] = np.squeeze(curve.basis_funs(span, u_bar[i]))
+        span = curve.find_span(u_bar[i], U, p, n)
+        A[span-p:span+1, i] = np.squeeze(curve.basis_funs(span, u_bar[i], U, p))
 
     # Solve linear system of equations for each dimension
     P = np.zeros((ncp, curve.ndims))
@@ -751,7 +774,7 @@ def wrapper(X, opti_options):
 # s = u - curve.knotsU[span]
 # s_vec = np.array([s**3, s**2, s, 1])
 # N = np.matmul(s_vec, curve.M_u[:,:,span])
-# N1 = curve.basis_funs(curve.find_span(u), u, ders=0)
+# N1 = curve.basis_funs(curve.find_span(u, U, p, n), u, U, p, ders=0)
 # print(N, N1)
 
 ###### Ex2
@@ -760,8 +783,8 @@ def wrapper(X, opti_options):
 # u = 5/2
 # curve = BSplineCurve(p, U)
 
-# i = curve.find_span(u)
-# dN = curve.basis_funs(i, u, ders=2)
+# i = curve.find_span(u, U, p, n)
+# dN = curve.basis_funs(i, u, U, p, ders=2)
 # curve.eval_der(u, 2)
 
 
