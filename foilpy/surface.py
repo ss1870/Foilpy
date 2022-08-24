@@ -78,21 +78,37 @@ class SplineSurface(BSplineCurve):
             C[i,:] = self.eval_surf(pt[0], pt[1])
         return C
 
-    def grid_plot(self, scatter_pts=None, npts=100):
+    def grid_plot(self, scatter_pts=None, npts_u=100, npts_v=100, scaled=False):
+        """
+        Plot surface using a grid.
+        """
         fig, ax = plt.subplots()
         ax = fig.add_subplot(projection='3d')
-        u = np.linspace(0,1,npts)
-        v = np.linspace(0,1,npts)
-        isogrid_pts = np.zeros((npts,npts,self.ndims))
+        u = np.linspace(0,1,npts_u)
+        v = np.linspace(0,1,npts_v)
+        isogrid_pts = np.zeros((npts_u,npts_v,self.ndims))
         for i in range(len(u)):
             for j in range(len(v)):
                 isogrid_pts[i,j,:] = self.eval_surf(u[i],v[j])
-            ax.plot3D(isogrid_pts[i,:,0], isogrid_pts[i,:,1], isogrid_pts[i,:,2], color='black')
+            # plot v-direction isolines
+            if i==0 or i==len(u)-1:
+                ax.plot3D(isogrid_pts[i,:,0], isogrid_pts[i,:,1], isogrid_pts[i,:,2], color='red')
+            else:
+                ax.plot3D(isogrid_pts[i,:,0], isogrid_pts[i,:,1], isogrid_pts[i,:,2], color='black')
         for j in range(len(v)):
-            ax.plot3D(isogrid_pts[:,j,0], isogrid_pts[:,j,1], isogrid_pts[:,j,2], color='black')
+            # plot u-direction isolines
+            if j==0 or j==len(v)-1:
+                ax.plot3D(isogrid_pts[:,j,0], isogrid_pts[:,j,1], isogrid_pts[:,j,2], color='red')
+            else:
+                ax.plot3D(isogrid_pts[:,j,0], isogrid_pts[:,j,1], isogrid_pts[:,j,2], color='black')
         if np.any(scatter_pts != None):
             ax.scatter(scatter_pts[:,:,0],scatter_pts[:,:,1],scatter_pts[:,:,2],marker='o')
-
+        if scaled:
+            minval = np.amin(isogrid_pts)  # lowest number in the array
+            maxval = np.amax(isogrid_pts)  # highest number in the array
+            ax.set_xlim3d(minval, maxval)
+            ax.set_ylim3d(minval, maxval)
+            ax.set_zlim3d(minval, maxval)
 
 def parameterise_surf(points, method='centripetal'):
     """
@@ -150,7 +166,7 @@ def surf_interp(Q, p, q, u_bar=None, v_bar=None, U=None, V=None,
     surf = SplineSurface(p,q,U,V,P_interp2)
     
     if plot_flag:
-        surf.grid_plot(scatter_pts=Q, npts=20)
+        surf.grid_plot(scatter_pts=Q, npts_u=20, npts_v=20)
     return surf
 
 
@@ -183,18 +199,18 @@ def surf_approx(Q, ncp_u, ncp_v, p, q, u_bar=None, v_bar=None, U=None, V=None,
                                 method='even_approx', plot_flag=False)
         elif knot_spacing == 'adaptive':
             Fisum = []
-            for i in range(npts_u):
+            for i in range(npts_v):
                 Fi, fi, ui = calc_feature_func(Q[:,i,:], u_bar, p, nkts_u, plot_flag=False)
                 Fisum.append(Fi)
             Fisum = np.sum(np.asarray(Fisum), axis=0)
-            U = knots_from_feature(Fisum, fi, ui, u_bar, nkts_u, p, plot_flag=int_plots)
+            U = knots_from_feature(Fisum, ui, u_bar, nkts_u, p, plot_flag=int_plots)
             
             Fisum = []
             for i in range(npts_u):
                 Fi, fi, ui = calc_feature_func(Q[i,:,:], v_bar, q, nkts_v, plot_flag=False)
                 Fisum.append(Fi)
             Fisum = np.sum(np.asarray(Fisum), axis=0)
-            V = knots_from_feature(Fisum, fi, ui, v_bar, nkts_v, q, plot_flag=int_plots)
+            V = knots_from_feature(Fisum, ui, v_bar, nkts_v, q, plot_flag=int_plots)
 
     # Instantiate surface 
     surf = SplineSurface(p,q,U,V)
@@ -268,7 +284,8 @@ def surf_approx(Q, ncp_u, ncp_v, p, q, u_bar=None, v_bar=None, U=None, V=None,
     surf = SplineSurface(p,q,U,V,P_interp2)
     
     if plot_flag:
-        surf.grid_plot(scatter_pts=Q, npts=20)
+        # surf.grid_plot(scatter_pts=Q, npts=20)
+        surf.grid_plot(npts_u=50, npts_v=50)
         vv,uu = np.meshgrid(v_bar, u_bar)
         pt_list = np.hstack((uu.reshape(-1,1), vv.reshape(-1,1)))
         eval_pts = surf.eval_surf_list(pt_list[:,:2])
@@ -280,51 +297,51 @@ def surf_approx(Q, ncp_u, ncp_v, p, q, u_bar=None, v_bar=None, U=None, V=None,
     return surf
 
 
-%matplotlib widget
-points = (((-5, -5, 0), (-2.5, -5, 0), (0, -5, 0), (2.5, -5, 0), (5, -5, 0), (7.5, -5, 0), (10, -5, 0)),
-          ((-5, 0, 3), (-2.5, 0, 3), (0, 0, 3), (2.5, 0, 3), (5, 0, 3), (7.5, 0, 3), (10, 0, 3)),
-          ((-5, 5, 0), (-2.5, 5, 0), (0, 5, 0), (2.5, 5, 0), (5, 5, 0), (7.5, 5, 0), (10, 5, 0)),
-          ((-5, 7.5, -3), (-2.5, 7.5, -3), (0, 7.5, -3), (2.5, 7.5, -3), (5, 7.5, -3), (7.5, 7.5, -3), (10, 7.5, -3)),
-          ((-5, 10, 0), (-2.5, 10, 0), (0, 10, 0), (2.5, 10, 0), (5, 10, 0), (7.5, 10, 0), (10, 10, 0)))
+# %matplotlib widget
+# points = (((-5, -5, 0), (-2.5, -5, 0), (0, -5, 0), (2.5, -5, 0), (5, -5, 0), (7.5, -5, 0), (10, -5, 0)),
+#           ((-5, 0, 3), (-2.5, 0, 3), (0, 0, 3), (2.5, 0, 3), (5, 0, 3), (7.5, 0, 3), (10, 0, 3)),
+#           ((-5, 5, 0), (-2.5, 5, 0), (0, 5, 0), (2.5, 5, 0), (5, 5, 0), (7.5, 5, 0), (10, 5, 0)),
+#           ((-5, 7.5, -3), (-2.5, 7.5, -3), (0, 7.5, -3), (2.5, 7.5, -3), (5, 7.5, -3), (7.5, 7.5, -3), (10, 7.5, -3)),
+#           ((-5, 10, 0), (-2.5, 10, 0), (0, 10, 0), (2.5, 10, 0), (5, 10, 0), (7.5, 10, 0), (10, 10, 0)))
 
-points = np.asarray(points)
-p = 3
-q = 3
-ncp_u = 4
-ncp_v = 6
+# points = np.asarray(points)
+# p = 3
+# q = 3
+# ncp_u = 4
+# ncp_v = 6
 
-mysurf_interp = surf_interp(points, p, q, param_method='chord', plot_flag=True)
-mysurf_approx = surf_approx(points, ncp_u, ncp_v, p, q, param_method='chord', 
-                            knot_spacing='even_approx', plot_flag=True)
+# mysurf_interp = surf_interp(points, p, q, param_method='chord', plot_flag=True)
+# mysurf_approx = surf_approx(points, ncp_u, ncp_v, p, q, param_method='chord', 
+#                             knot_spacing='even_approx', plot_flag=True)
 
 
-## Test
-from geomdl import fitting
-from geomdl.visualization import VisMPL as vis
-# Data set
-points1 = ((-5, -5, 0), (-2.5, -5, 0), (0, -5, 0), (2.5, -5, 0), (5, -5, 0), (7.5, -5, 0), (10, -5, 0),
-          (-5, 0, 3), (-2.5, 0, 3), (0, 0, 3), (2.5, 0, 3), (5, 0, 3), (7.5, 0, 3), (10, 0, 3),
-          (-5, 5, 0), (-2.5, 5, 0), (0, 5, 0), (2.5, 5, 0), (5, 5, 0), (7.5, 5, 0), (10, 5, 0),
-          (-5, 7.5, -3), (-2.5, 7.5, -3), (0, 7.5, -3), (2.5, 7.5, -3), (5, 7.5, -3), (7.5, 7.5, -3), (10, 7.5, -3),
-          (-5, 10, 0), (-2.5, 10, 0), (0, 10, 0), (2.5, 10, 0), (5, 10, 0), (7.5, 10, 0), (10, 10, 0))
-size_u = 5
-size_v = 7
-degree_u = 3
-degree_v = 3
+# ## Test
+# from geomdl import fitting
+# from geomdl.visualization import VisMPL as vis
+# # Data set
+# points1 = ((-5, -5, 0), (-2.5, -5, 0), (0, -5, 0), (2.5, -5, 0), (5, -5, 0), (7.5, -5, 0), (10, -5, 0),
+#           (-5, 0, 3), (-2.5, 0, 3), (0, 0, 3), (2.5, 0, 3), (5, 0, 3), (7.5, 0, 3), (10, 0, 3),
+#           (-5, 5, 0), (-2.5, 5, 0), (0, 5, 0), (2.5, 5, 0), (5, 5, 0), (7.5, 5, 0), (10, 5, 0),
+#           (-5, 7.5, -3), (-2.5, 7.5, -3), (0, 7.5, -3), (2.5, 7.5, -3), (5, 7.5, -3), (7.5, 7.5, -3), (10, 7.5, -3),
+#           (-5, 10, 0), (-2.5, 10, 0), (0, 10, 0), (2.5, 10, 0), (5, 10, 0), (7.5, 10, 0), (10, 10, 0))
+# size_u = 5
+# size_v = 7
+# degree_u = 3
+# degree_v = 3
 
-geosurf_interp = fitting.interpolate_surface(points1, size_u, size_v, degree_u, degree_v)
-geosurf_approx = fitting.approximate_surface(points1, size_u, size_v, degree_u, degree_v, 
-                            ctrlpts_size_u=ncp_u, ctrlpts_size_v=ncp_v)
-# geosurf_interp.delta = 0.05
-# geosurf_interp.vis = vis.VisSurface()
-# geosurf_interp.render()
+# geosurf_interp = fitting.interpolate_surface(points1, size_u, size_v, degree_u, degree_v)
+# geosurf_approx = fitting.approximate_surface(points1, size_u, size_v, degree_u, degree_v, 
+#                             ctrlpts_size_u=ncp_u, ctrlpts_size_v=ncp_v)
+# # geosurf_interp.delta = 0.05
+# # geosurf_interp.vis = vis.VisSurface()
+# # geosurf_interp.render()
 
-compare_interp = (np.array(geosurf_interp.ctrlpts2d).reshape(-1,3) - 
-                    mysurf_interp.contrl_pts.reshape(-1,3))
-assert np.isclose(np.max(np.abs(compare_interp)), 0)
-compare_approx = (np.array(geosurf_approx.ctrlpts2d).reshape(-1,3) - 
-                    mysurf_approx.contrl_pts.reshape(-1,3))
-assert np.isclose(np.max(np.abs(compare_approx)), 0)
+# compare_interp = (np.array(geosurf_interp.ctrlpts2d).reshape(-1,3) - 
+#                     mysurf_interp.contrl_pts.reshape(-1,3))
+# assert np.isclose(np.max(np.abs(compare_interp)), 0)
+# compare_approx = (np.array(geosurf_approx.ctrlpts2d).reshape(-1,3) - 
+#                     mysurf_approx.contrl_pts.reshape(-1,3))
+# assert np.isclose(np.max(np.abs(compare_approx)), 0)
 
 
 

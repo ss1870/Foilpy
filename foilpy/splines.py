@@ -380,6 +380,12 @@ class BSplineCurve():
                 ax.plot3D(extra_pts[:,0], extra_pts[:,1], extra_pts[:,2], linestyle='', marker='.', color='black')
             if plotCPs:
                 ax.plot3D(self.contrl_pts[:,0], self.contrl_pts[:,1], self.contrl_pts[:,2], linestyle='--', marker='.')
+            if scaled:
+                minval = np.amin(C)  # lowest number in the array
+                maxval = np.amax(C)  # highest number in the array
+                ax.set_xlim3d(minval, maxval)
+                ax.set_ylim3d(minval, maxval)
+                ax.set_zlim3d(minval, maxval)
         ax.grid(True)
         if return_axes:
             return fig, ax
@@ -453,7 +459,7 @@ def distribute_knots(u_bar, p, n_knts, Q=None, method='even_interp',
         U[-p-1:] = 1
     elif method == 'adaptive':
         Fi, fi, ui = calc_feature_func(Q, u_bar, p, n_knts, plot_flag=plot_flag)
-        U = knots_from_feature(Fi, fi, ui, u_bar, n_knts, p, plot_flag=plot_flag)
+        U = knots_from_feature(Fi, ui, u_bar, n_knts, p, plot_flag=plot_flag)
 
     else:
         raise Exception("Knot spacing method not recognised: " + method)
@@ -465,6 +471,11 @@ def distribute_knots(u_bar, p, n_knts, Q=None, method='even_interp',
 
 
 def calc_feature_func(Q, u_bar, p, n_knts, plot_flag=False):
+    """
+    Determines feature function for a given set of points Q, with 
+    parameterisation u_bar. Degree is used to determine which order derivative
+    to take.
+    """
     m = Q.shape[0]
     # Compute derivatives up to order of approximating curve
     Qtemp = Q
@@ -514,8 +525,11 @@ def calc_feature_func(Q, u_bar, p, n_knts, plot_flag=False):
     return Fi, fi, ui
 
 
-def knots_from_feature(Fi, fi, ui, u_bar, n_knts, p, plot_flag=False):
-    n_iknts = n_knts - p*2
+def knots_from_feature(Fi, ui, u_bar, n_knts, p, plot_flag=False):
+    """
+    Determines a knot vector from a feature function Fi(ui).
+    """
+    n_iknts = n_knts - p*2 # no of internal knots
     deltaF = Fi[-1] / (n_iknts - 1)
 
     # Invert the feature function
