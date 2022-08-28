@@ -202,14 +202,14 @@ def surf_approx(Q, ncp_u, ncp_v, p, q, u_bar=None, v_bar=None, U=None, V=None,
             for i in range(npts_v):
                 Fi, fi, ui = calc_feature_func(Q[:,i,:], u_bar, p, nkts_u, plot_flag=False)
                 Fisum.append(Fi)
-            Fisum = np.sum(np.asarray(Fisum), axis=0)
+            Fisum = np.max(np.asarray(Fisum), axis=0)
             U = knots_from_feature(Fisum, ui, u_bar, nkts_u, p, plot_flag=int_plots)
             
             Fisum = []
             for i in range(npts_u):
                 Fi, fi, ui = calc_feature_func(Q[i,:,:], v_bar, q, nkts_v, plot_flag=False)
                 Fisum.append(Fi)
-            Fisum = np.sum(np.asarray(Fisum), axis=0)
+            Fisum = np.max(np.asarray(Fisum), axis=0)
             V = knots_from_feature(Fisum, ui, v_bar, nkts_v, q, plot_flag=int_plots)
 
     # Instantiate surface 
@@ -291,7 +291,8 @@ def surf_approx(Q, ncp_u, ncp_v, p, q, u_bar=None, v_bar=None, U=None, V=None,
         eval_pts = surf.eval_surf_list(pt_list[:,:2])
         diff = eval_pts - Q.reshape(-1,3)
         Q_rng = np.max((np.max(Q, axis=0) - np.min(Q, axis=0))) + 1e-12
-        err_max = 1 / Q_rng * np.max(np.linalg.norm(diff))
+        # err_max = 1 / Q_rng * np.max(np.linalg.norm(diff))
+        err_max = np.max(np.linalg.norm(diff))
         err_rms = 1 / Q_rng * np.sqrt(np.sum(np.linalg.norm(diff) ** 2) / (npts_u*npts_v))
         plt.title("Max error=%f, RMS error=%f"%(err_max, err_rms))
     return surf
