@@ -192,7 +192,7 @@ def get_pt_spacing(wing, resolution):
     return ncs, ncs_pts
 
 def spanwise_geom(wing, ncs, tip_thick, span_spacing='cosspace',
-            add_socket=False, x_tuck_te=0.016):
+            add_socket=False, half=False, x_tuck_te=0.016):
     """
     Create spanwise geometry inputs i.e. chord, t2c, washout, ref axis
     """
@@ -204,10 +204,13 @@ def spanwise_geom(wing, ncs, tip_thick, span_spacing='cosspace',
     washoutf    = interp1d(wing.x, wing.washout_curve, axis=0)
 
     ## Create new spanwise (x) spacing with requested ncs
+    x0 = wing.x[0]
+    if half:
+        x0 = 0
     if span_spacing == 'cosspace':
-        x_interp = cosspace(wing.x[0], wing.x[-1], n_pts=ncs)
+        x_interp = cosspace(x0, wing.x[-1], n_pts=ncs)
     elif span_spacing == 'linspace':
-        x_interp = np.linspace(wing.x[0], wing.x[-1], ncs)
+        x_interp = np.linspace(x0, wing.x[-1], ncs)
 
     ## Interpolate LE, TE, ref_axis, t2c, washout on new spanwise grid
     ref_axis    = ref_axisf(x_interp)
@@ -220,14 +223,19 @@ def spanwise_geom(wing, ncs, tip_thick, span_spacing='cosspace',
     if tip_thick > 0:
         ## Trim tips given a min absolute thickness
         abs_thick = chord * t2c # Get absolute thickness
-        ID = np.where(abs_thick > tip_thick/1e3)[0][0] + 10
-        # Find x location to cut off at
-        x_cut_off = pchip_interpolate(abs_thick[:ID], x_interp[:ID], tip_thick/1e3)
+        if half:
+            x_cut_off = pchip_interpolate(np.flip(abs_thick), np.flip(x_interp), tip_thick/1e3)
+            x_cut_off0 = 0
+        else:
+            ID = np.where(abs_thick > tip_thick/1e3)[0][0] + 10
+            # Find x location to cut off at
+            x_cut_off = pchip_interpolate(abs_thick[:ID], x_interp[:ID], tip_thick/1e3)
+            x_cut_off0 = deepcopy(x_cut_off)
         # Create new shorter xgrid
         if span_spacing == 'cosspace':
-            x_interp = cosspace(x_cut_off, np.abs(x_cut_off), n_pts=ncs)
+            x_interp = cosspace(x_cut_off0, np.abs(x_cut_off), n_pts=ncs)
         elif span_spacing == 'linspace':
-            x_interp = np.linspace(x_cut_off, np.abs(x_cut_off), ncs)
+            x_interp = np.linspace(x_cut_off0, np.abs(x_cut_off), ncs)
         # Reinterpolate geometrical parameters on new shorter xgrid
         ref_axis = ref_axisf(x_interp)
         t2c = t2cf(x_interp)
@@ -245,9 +253,10 @@ def spanwise_geom(wing, ncs, tip_thick, span_spacing='cosspace',
                         [x_tuck_te, 4],
                         [0.028, 3],     # 56 mm
                         [0.04, 0.5]])
-        KPlhs = deepcopy(KPs)
-        KPlhs[:,0] = -KPlhs[:,0]
-        KPs = np.unique(np.vstack((np.flipud(KPlhs), KPs)), axis=0)
+        if not half:
+            KPlhs = deepcopy(KPs)
+            KPlhs[:,0] = -KPlhs[:,0]
+            KPs = np.unique(np.vstack((np.flipud(KPlhs), KPs)), axis=0)
 
         # Add KPs into rowise sorted [x, method] grid
         x = np.hstack((x_interp.reshape(-1,1), method))
@@ -257,19 +266,28 @@ def spanwise_geom(wing, ncs, tip_thick, span_spacing='cosspace',
 
         # Set method = 2
         x2 = x[x[:,1] == 2,0]
-        mask1 = (x[:,0] > x2[0]) & (x[:,0] < x2[1]) & (x[:,1] != 1)
+        if half:
+            mask1 = (x[:,0] < x2[0]) & (x[:,1] != 1)
+        else:
+            mask1 = (x[:,0] > x2[0]) & (x[:,0] < x2[1]) & (x[:,1] != 1)
         x[mask1,1] = 2
 
         # between 2/3
         x3 = x[x[:,1] == 3,0]
-        mask2 = ((x[:,0] > x3[0]) & (x[:,0] < x2[0])) | ((x[:,0] > x2[1]) & (x[:,0] < x3[1]))
+        if half:
+            mask2 = ((x[:,0] > x2[0]) & (x[:,0] < x3[0]))
+        else:
+            mask2 = ((x[:,0] > x3[0]) & (x[:,0] < x2[0])) | ((x[:,0] > x2[1]) & (x[:,0] < x3[1]))
         mask2 = mask2 & (x[:,1] != 4)
         # x = x[mask2==False,:]
         x[mask2,1] = 2.5
 
         # between 3/0.5
         x4 = x[x[:,1] == 0.5,0]
-        mask3 = ((x[:,0] > x4[0]) & (x[:,0] < x3[0])) | ((x[:,0] > x3[1]) & (x[:,0] < x4[1]))
+        if half:
+            mask3 = ((x[:,0] > x3[0]) & (x[:,0] < x4[0]))
+        else:
+            mask3 = ((x[:,0] > x4[0]) & (x[:,0] < x3[0])) | ((x[:,0] > x3[1]) & (x[:,0] < x4[1]))
         # x = x[mask3==False,:]
         x[mask3,1] = 2.5
         x[x[:,1] == 0.5,1] = 0

@@ -27,7 +27,7 @@ SF=1000
 mounting_angle=1.5
 plot_flag=True
 resolution='low'
-ncs_pts = 501   # used to interpolate modified aerofoils with improved spacing
+ncs_pts = 501   # used to interpolate modified aerofoils
 ncs_pts1 = 1001 # used to interpolate raw aerofoils
 ncs = 351
 tip_thick = 1 # mm 
@@ -52,9 +52,10 @@ print('Number of spanwise points = ', str(ncs))
 ## Create spanwise geometry inputs i.e. chord, t2c, washout, ref axis
 (x, ref_axis, 
     chord, t2c, 
-    washout, method) = spanwise_geom(wing, ncs, tip_thick, 
+    washout, method) = ex.spanwise_geom(wing, ncs, tip_thick, 
                                     span_spacing='linspace', 
-                                    add_socket=True, x_tuck_te=0.017)
+                                    add_socket=True, 
+                                    half=True, x_tuck_te=0.017)
 
 importlib.reload(ex)
 ## Modify wing centre with socket shape
@@ -172,7 +173,6 @@ for i in range(len(chord)):
     LE_pts = np.append(LE_pts, [coords[le_id,:]], axis=0)
     TE_pts = np.append(TE_pts, [(coords[0,:]+coords[-1,:])/2], axis=0)
 
-
 mask = method==2.5
 if np.any(mask):
     points_all1[:,mask,:] = pchip_interpolate(x[mask==False], 
@@ -184,7 +184,6 @@ if np.any(mask):
     TE_pts[mask,:] = pchip_interpolate(x[mask==False], 
                             TE_pts[mask==False,:], 
                             x[mask], axis=0)
-
 
 points_all *= SF
 points_all1 *= SF
@@ -207,14 +206,18 @@ for i in range(points_all1.shape[0]):
 # curve.plot_curve(extra_pts=points_all1[:,178,:], scaled=True, plotCPs=True)
 
 importlib.reload(sur)
+importlib.reload(spl)
 p = 3
 q = 3
 ncp_u = 39
-ncp_v = 79
+ncp_v = 39
 
 # mysurf_interp = sur.surf_interp(points_all1, p, q, param_method='chord', plot_flag=True)
-mysurf_approx = sur.surf_approx(points_all1, ncp_u, ncp_v, p, q, param_method='Fang', 
-                            knot_spacing='adaptive', int_plots=True, plot_flag=True)
+mysurf_approx = sur.surf_approx(points_all1, ncp_u, ncp_v, p, q, 
+                    param_method='Fang', knot_spacing='adaptive',
+                    xtra_U=None, xtra_V=[0.005, 0.01, 0.015],
+                    root_deriv=True,
+                    int_plots=True, plot_flag=True, scatter=True)
 mysurf_approx.grid_plot(npts_u=51, npts_v=301, scaled=False)
 
 surf_name = '/mnt/c/temp/wing1'

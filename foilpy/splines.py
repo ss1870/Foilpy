@@ -25,7 +25,8 @@ class BSplineCurve():
         self.r = len(U) - 1 # No of knots = r + 1
         self.n = self.r - self.p - 1
         self.Np = self.n + 1
-        self.M_u = self.def_m_matrix(self.knotsU, self.p)
+        if p == 3:
+            self.M_u = self.def_m_matrix(self.knotsU, self.p)
         if np.any(P is not None):
             self.contrl_pts = P # Control points
             assert P.shape[0] - 1 == self.r - self.p - 1
@@ -220,11 +221,15 @@ class BSplineCurve():
         """
         Find span for list of knots, rather than full knot vector.
         """
-        temp = knots < u
-        if np.all(temp == False):
-            span = 0
-        else:
-            span = np.where(knots < u)[0][-1]
+        if u > knots[-1]:
+            raise Exception("Query u must be less than U[end](=%d)"%knots[-1])
+        if u < knots[0]:
+            raise Exception("Query u must be greater than U[0](=%d)"%knots[0])
+        if u == knots[-1]:
+            return len(knots) - 2
+
+        temp = knots <= u
+        span = np.where(temp)[0][-1]
         return span
 
     def eval_curve(self, u, method=2, der1=False, der2=False):
@@ -234,24 +239,17 @@ class BSplineCurve():
         if (der1 or der2) and method==1:
             raise Exception("Error: derivative options only for eval method=2.")
 
+        span = self.find_span(u, self.U, self.p, self.n)
         if method == 1:
-            span = self.find_span(u, self.U, self.p, self.n)
             N = self.basis_funs(span, u, self.U, self.p)
             Cw = np.sum(np.tile(N, (1,self.ndims+1)) * self.Pw[span-self.p:span+1,:], axis=0)
             
         elif method == 2 and self.p==3:
-            # find which span u is in
-            span = self.find_span2(self.knotsU, u)
 
-            s = u - self.knotsU[span]
+            s = u - self.knotsU[span-self.p]
             s_vec = np.array([s**3, s**2, s, 1])
 
-            cpID = [span, span+4]
-            if cpID[0] < 0:
-                cpID = [0, 4]
-            if cpID[1] > self.Np - 1:
-                cpID = [self.Np-4, self.Np]
-            MCw = np.matmul(self.M_u[:,:,span], self.Pw[cpID[0]:cpID[1],:])
+            MCw = np.matmul(self.M_u[:,:,span-self.p], self.Pw[span-self.p:span+1,:])
             Cw = np.matmul(s_vec, MCw)
 
         C = Cw[:self.ndims]/Cw[self.ndims]
@@ -291,6 +289,8 @@ class BSplineCurve():
         """
         Evaluate curve at a list of u parameters.
         """
+        if self.p != 3:
+            method = 1
         try:
             C = np.zeros((len(u), self.ndims))
             for i, u in enumerate(u):
@@ -420,7 +420,7 @@ def parameterise_curve(Q, method='centripetal', plot_flag=False):
         dQ[:-1] += 0.1 * (0.5 * thi * li / np.sin(0.5*thi))
         dQ[1:] += 0.1 * (0.5 * thi * li / np.sin(0.5*thi))
     else:
-        print("Curve parameterisation method unrecognised.")
+        raise Exception("Curve parameterisation method unrecognised.")
 
     d = np.sum(dQ, axis=0)
     u_bar = np.append(0, np.cumsum(dQ/d))
@@ -629,13 +629,24 @@ def curve_approx(Q, ncp, p, u_bar=None, U=None, plot_flag=True,
     curve.Pw = np.hstack((curve.weights * curve.contrl_pts, curve.weights))
 
     if plot_flag:
-        Qnew = Q
+        Qnew = deepcopy(Q)
         if curve.ndims == 1:
             Qnew = np.hstack((u_bar.reshape(-1,1), Q.reshape(-1,1)))
-        fig, ax = curve.plot_curve(method=2, scaled=False, extra_pts=Qnew, return_axes=True)
+        fig, ax = curve.plot_curve(method=2, scaled=False, return_axes=True)
+        # Compute diff between eval pts and equivalent curve points
+        diff = np.linalg.norm(curve.eval_list(u_bar) - Q, axis=1)
+        # Plot scatter of points with color to indicate distance
+        diffplot = ax.scatter(Qnew[:,0],
+                        Qnew[:,1],
+                        Qnew[:,2],
+                        c=diff, marker='.')
+        plt.colorbar(diffplot)
+
         Q_rng = np.max((np.max(Q, axis=0) - np.min(Q, axis=0))) + 1e-12
-        err_max = 1 / Q_rng * np.max(np.linalg.norm(curve.eval_list(u_bar) - Q))
-        err_rms = 1 / Q_rng * np.sqrt(np.sum(np.linalg.norm(curve.eval_list(u_bar) - Q) ** 2) / m)
+        # err_max = 1 / Q_rng * np.max(np.linalg.norm(curve.eval_list(u_bar) - Q))
+        # err_rms = 1 / Q_rng * np.sqrt(np.sum(np.linalg.norm(curve.eval_list(u_bar) - Q) ** 2) / m)
+        err_max = np.max(diff)
+        err_rms = np.sqrt(np.sum(diff ** 2) / m)
         plt.title("Max error=%f, RMS error=%f"%(err_max, err_rms))
 
     
@@ -768,6 +779,7 @@ def wrapper(X, opti_options):
 # P = np.array([[0,0,0],[1,1,1],[1,3,2],[3,4,1],[4,5,-1],[5,7,3]])
 
 # curve = BSplineCurve(p, U, w, P)
+
 # curve.plot_curve(method=2)
 # curve.def_mapping(npts=1000, plot_flag=True)
 
@@ -778,18 +790,28 @@ def wrapper(X, opti_options):
 # assert np.all(np.isclose(C1,C2))
 
 ## Check method1 and method2 produce same basis functions
-# u = 2.5
-# temp = np.array(curve.knotsU) < u
-# if np.all(temp == False):
-#     span = 0
-# else:
-#     span = np.where(curve.knotsU < u)[0][-1]
-
+# u = 2
+# span = curve.find_span2(curve.knotsU, u)
 # s = u - curve.knotsU[span]
 # s_vec = np.array([s**3, s**2, s, 1])
 # N = np.matmul(s_vec, curve.M_u[:,:,span])
-# N1 = curve.basis_funs(curve.find_span(u, U, p, n), u, U, p, ders=0)
+# N1 = curve.basis_funs(curve.find_span(u, U, p, curve.n), u, U, p, ders=0)
 # print(N, N1)
+
+## Check time for find span and findspan2
+# import timeit
+# num_runs = 10000
+# u = 0.1
+# p = 3
+# U = np.concatenate(([0]*p, np.linspace(0,1,100), [1]*p))
+# curve = BSplineCurve(p, U)
+# func = lambda : curve.find_span(u,U,p,curve.n)
+# func1 = lambda : curve.find_span2(curve.knotsU, u)
+
+# duration = timeit.Timer(func).timeit(number = num_runs)
+# print(f'On average it took {duration/num_runs} seconds')
+# duration = timeit.Timer(func1).timeit(number = num_runs)
+# print(f'On average it took {duration/num_runs} seconds')
 
 ###### Ex2
 # U = [0,0,0,1,2,3,4,4,5,5,5]

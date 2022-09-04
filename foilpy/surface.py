@@ -30,7 +30,8 @@ class SplineSurface(BSplineCurve):
         self.knotsV = np.array(self.V[self.q:-self.q])
         self.s = len(V) - 1
         self.m = self.s - self.q - 1
-        self.M_v = self.def_m_matrix(self.knotsV, self.q)
+        if q == 3:
+            self.M_v = self.def_m_matrix(self.knotsV, self.q)
         if np.any(P != None):
             self.contrl_pts = P # Control points
             assert P.shape[0] - 1 == self.r - self.p - 1
@@ -43,30 +44,23 @@ class SplineSurface(BSplineCurve):
         """
         Evaluate spline surface at (u, v) coordinate.
         """
-        # Find knot spans for u and v coords
-        span_u = self.find_span2(self.knotsU, u)
-        span_v = self.find_span2(self.knotsV, v)
+        span_u = self.find_span(u, self.U, self.p, self.n)
+        if self.p == 3:
+            s = u - self.knotsU[span_u-self.p]
+            s_vec_u = np.array([s**3, s**2, s, 1])
+            Nu = np.matmul(s_vec_u, self.M_u[:,:,span_u-self.p]).reshape(4,1)
+        else:
+            Nu = self.basis_funs(span_u, u, self.U, self.p)
 
-        s = u - self.knotsU[span_u]
-        s_vec_u = np.array([s**3, s**2, s, 1])
-        s = v - self.knotsV[span_v]
-        s_vec_v = np.array([s**3, s**2, s, 1])
-
-        cpID_u = [span_u, span_u+4]
-        if cpID_u[0] < 0:
-            cpID_u = [0, 4]
-        if cpID_u[1] > self.npts_u - 1:
-            cpID_u = [self.npts_u-4, self.npts_u]
-        cpID_v = [span_v, span_v+4]
-        if cpID_v[0] < 0:
-            cpID_v = [0, 4]
-        if cpID_v[1] > self.npts_v - 1:
-            cpID_v = [self.npts_v-4, self.npts_v]
-
-
-        Nu = np.matmul(s_vec_u, self.M_u[:,:,span_u]).reshape(4,1)
-        Nv = np.matmul(s_vec_v, self.M_v[:,:,span_v]).reshape(4,1)
-        P_temp = self.contrl_pts[cpID_u[0]:cpID_u[1],cpID_v[0]:cpID_v[1],:]
+        span_v = self.find_span(v, self.V, self.q, self.m)
+        if self.q == 3:
+            s = v - self.knotsV[span_v-self.q]
+            s_vec_v = np.array([s**3, s**2, s, 1])
+            Nv = np.matmul(s_vec_v, self.M_v[:,:,span_v-self.q]).reshape(4,1)
+        else:
+            Nv = self.basis_funs(span_v, v, self.V, self.q)
+            
+        P_temp = self.contrl_pts[span_u-self.p:span_u+1,span_v-self.q:span_v+1,:]
         S = np.zeros((self.ndims))
         for i in range(self.ndims):
             S[i] = np.matmul(np.matmul(Nu.T, P_temp[:,:,i]), Nv)
@@ -78,7 +72,8 @@ class SplineSurface(BSplineCurve):
             C[i,:] = self.eval_surf(pt[0], pt[1])
         return C
 
-    def grid_plot(self, scatter_pts=None, npts_u=100, npts_v=100, scaled=False):
+    def grid_plot(self, scatter_pts=None, npts_u=100, npts_v=100,
+                    rtrn_ax=False, scaled=False):
         """
         Plot surface using a grid.
         """
@@ -109,6 +104,9 @@ class SplineSurface(BSplineCurve):
             ax.set_xlim3d(minval, maxval)
             ax.set_ylim3d(minval, maxval)
             ax.set_zlim3d(minval, maxval)
+        
+        if rtrn_ax:
+            return fig, ax
 
 def parameterise_surf(points, method='centripetal'):
     """
@@ -172,7 +170,8 @@ def surf_interp(Q, p, q, u_bar=None, v_bar=None, U=None, V=None,
 
 def surf_approx(Q, ncp_u, ncp_v, p, q, u_bar=None, v_bar=None, U=None, V=None,
                 knot_spacing='even_approx', param_method='centripetal',
-                plot_flag=True, int_plots=False):
+                xtra_U=None, xtra_V=None, plot_flag=True,
+                root_deriv=False, int_plots=False, scatter=False):
     """
     Approximate surface.
     Q: (npts_u, npts_v, ndims)
@@ -212,6 +211,17 @@ def surf_approx(Q, ncp_u, ncp_v, p, q, u_bar=None, v_bar=None, U=None, V=None,
             Fisum = np.max(np.asarray(Fisum), axis=0)
             V = knots_from_feature(Fisum, ui, v_bar, nkts_v, q, plot_flag=int_plots)
 
+    if np.any(xtra_U != None):
+        U = np.sort(np.concatenate((U, xtra_U)))
+        r = len(U) - 1
+        n = r - p - 1
+        ncp_u = n + 1
+    if np.any(xtra_V != None):
+        V = np.sort(np.concatenate((V, xtra_V)))
+        s = len(V) - 1
+        m = s - q - 1
+        ncp_v = m + 1
+
     # Instantiate surface 
     surf = SplineSurface(p,q,U,V)
     surf.ndims = Q.shape[2]
@@ -250,7 +260,7 @@ def surf_approx(Q, ncp_u, ncp_v, p, q, u_bar=None, v_bar=None, U=None, V=None,
                                     Q[-1,i,:].reshape(1,-1), axis=0)
         if int_plots:
             curve = BSplineCurve(p, U, np.ones((ncp_u,1)), P_interp1[:,i,:])
-            fig, ax = curve.plot_curve(method=2, scaled=False, fig=fig, ax=ax,
+            fig, ax = curve.plot_curve(scaled=False, fig=fig, ax=ax,
                                 extra_pts=Q[:,i,:], return_axes=True)
 
     # Precompute coefficient matrices in V direction
@@ -281,20 +291,34 @@ def surf_approx(Q, ncp_u, ncp_v, p, q, u_bar=None, v_bar=None, U=None, V=None,
                             np.append(P_interp1[i,0,:].reshape(1,-1), P, axis=0),
                                     P_interp1[i,-1,:].reshape(1,-1), axis=0)
 
+    if root_deriv:
+        P_interp2[:,1,1:] = P_interp2[:,0,1:]
+
     surf = SplineSurface(p,q,U,V,P_interp2)
     
     if plot_flag:
         # surf.grid_plot(scatter_pts=Q, npts=20)
-        surf.grid_plot(npts_u=50, npts_v=50)
+        fig, ax = surf.grid_plot(npts_u=50, npts_v=50, rtrn_ax=True)
+
         vv,uu = np.meshgrid(v_bar, u_bar)
         pt_list = np.hstack((uu.reshape(-1,1), vv.reshape(-1,1)))
         eval_pts = surf.eval_surf_list(pt_list[:,:2])
-        diff = eval_pts - Q.reshape(-1,3)
+        diff = np.linalg.norm(eval_pts - Q.reshape(-1,3), axis=1)
+
+        if scatter:
+            diffplot = ax.scatter(eval_pts[:,0],
+                                    eval_pts[:,1],
+                                    eval_pts[:,2],
+                                    c=diff, marker='.')
+            plt.colorbar(diffplot)
+
+        
         Q_rng = np.max((np.max(Q, axis=0) - np.min(Q, axis=0))) + 1e-12
         # err_max = 1 / Q_rng * np.max(np.linalg.norm(diff))
-        err_max = np.max(np.linalg.norm(diff))
-        err_rms = 1 / Q_rng * np.sqrt(np.sum(np.linalg.norm(diff) ** 2) / (npts_u*npts_v))
-        plt.title("Max error=%f, RMS error=%f"%(err_max, err_rms))
+        err_max = np.max(diff)
+        # err_rms = 1 / Q_rng * np.sqrt(np.sum(diff ** 2) / (npts_u*npts_v))
+        err_rms = np.sqrt(np.sum(diff ** 2) / (npts_u*npts_v))
+        plt.title("U(%d,%d), V(%d,%d)\nMax error=%f, RMS error=%f"%(p, ncp_u, q, ncp_v, err_max, err_rms))
     return surf
 
 
@@ -311,9 +335,10 @@ def surf_approx(Q, ncp_u, ncp_v, p, q, u_bar=None, v_bar=None, U=None, V=None,
 # ncp_u = 4
 # ncp_v = 6
 
-# mysurf_interp = surf_interp(points, p, q, param_method='chord', plot_flag=True)
+# # mysurf_interp = surf_interp(points, p, q, param_method='chord', plot_flag=True)
 # mysurf_approx = surf_approx(points, ncp_u, ncp_v, p, q, param_method='chord', 
-#                             knot_spacing='even_approx', plot_flag=True)
+#                             knot_spacing='even_approx', plot_flag=True,
+#                             scatter=True)
 
 
 # ## Test
