@@ -309,6 +309,10 @@ class BSplineCurve():
 
         return C
 
+    def eval_curvature(self, u):
+        _, d1, d2 = self.eval_curve(u, method=2, der1=True, der2=True)
+        return (d1[0] * d2[1] - d1[1] * d2[1]) / (d1[0]**2 + d1[1]**2) ** 1.5
+
     def def_mapping(self, npts=1000, plot_flag=False):
         # evaluate curve
         u = np.linspace(self.U[0], self.U[-1], npts)
