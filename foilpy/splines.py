@@ -310,8 +310,17 @@ class BSplineCurve():
         return C
 
     def eval_curvature(self, u):
+        """
+        Return signed curvature of the spline at parametric location u.
+        Only works for 1D or 2D curves.
+        """
         _, d1, d2 = self.eval_curve(u, method=2, der1=True, der2=True)
-        return (d1[0] * d2[1] - d1[1] * d2[1]) / (d1[0]**2 + d1[1]**2) ** 1.5
+        if self.ndims == 1:
+            return (1 * d2[0] - d1[0] * 0) / (1 + d1[0]**2) ** 1.5
+        elif self.ndims == 2:
+            return (d1[0] * d2[1] - d1[1] * d2[0]) / (d1[0]**2 + d1[1]**2) ** 1.5
+        else:
+            raise Exception('Can only compute curvature for curves of dimensions 1 or 2.')
 
     def def_mapping(self, npts=1000, plot_flag=False):
         # evaluate curve
