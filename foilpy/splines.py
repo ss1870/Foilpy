@@ -239,7 +239,9 @@ class BSplineCurve():
         if (der1 or der2) and method==1:
             raise Exception("Error: derivative options only for eval method=2.")
 
+        # Find knot span in which u resides
         span = self.find_span(u, self.U, self.p, self.n)
+
         if method == 1:
             N = self.basis_funs(span, u, self.U, self.p)
             Cw = np.sum(np.tile(N, (1,self.ndims+1)) * self.Pw[span-self.p:span+1,:], axis=0)
@@ -252,19 +254,26 @@ class BSplineCurve():
             MCw = np.matmul(self.M_u[:,:,span-self.p], self.Pw[span-self.p:span+1,:])
             Cw = np.matmul(s_vec, MCw)
 
-        C = Cw[:self.ndims]/Cw[self.ndims]
+        C = Cw[:self.ndims] / Cw[self.ndims]
         if der1:
             # first derivative w.r.t u parameter
             s_vecd1 = np.array([3*s**2, 2*s, 1, 0])
             dCw1 = np.matmul(s_vecd1, MCw)
-            dC1 = dCw1[:self.ndims]/dCw1[self.ndims]
+            dC1 = dCw1[:self.ndims] / Cw[self.ndims]
         if der2:
             # second derivative w.r.t u parameter
             s_vecd2 = np.array([6*s, 2, 0, 0])
             dCw2 = np.matmul(s_vecd2, MCw)
-            dC2 = dCw2[:self.ndims]/dCw2[self.ndims]
+            dC2 = dCw2[:self.ndims] / Cw[self.ndims]
 
-        return C
+        if der1 and not der2:
+            return C, dC1
+        elif not der1 and der2:
+            return C, dC2
+        elif der1 and der2:
+            return C, dC1, dC2
+        else:
+            return C
 
     def eval_der(self, u, d):
         """
