@@ -336,8 +336,9 @@ class BSplineCurve():
         plt.plot(u_all, N.T)
         return N
     
-    def plot_curve(self, pts=100, method=2, fig = None, ax = None, return_axes=False, 
-                    extra_pts=None, rond=None, scaled=True, plotCPs=True):
+    def plot_curve(self, pts=100, method=2, fig = None, ax = None,
+                return_axes=False, extra_pts=None, rond=None,
+                scaled=True, plotCPs=True):
         """
         Plot curve over full u domain
         """
@@ -495,14 +496,14 @@ def calc_feature_func(Q, u_bar, p, n_knts, plot_flag=False):
     fi = np.append(np.append(0, fi), 0)
 
     # Cumulative feature function
-    fj = 0.5 * (fi[1:] + fi[:-1]) * (ui[1:] - ui[:-1])
+    fj = 0.5 * (fi[1:] + fi[:-1] + 1e-10) * (ui[1:] - ui[:-1])
     Fi = np.append(0, np.cumsum(fj))
 
     # Determine deltaF based on requested number of CPs and knots
     n_iknts = n_knts - p*2
     deltaF = Fi[-1] / (n_iknts - 1)
     # Adjust cumulative integration in case of any small gaps
-    fj = np.minimum(deltaF, 0.5 * (fi[1:] + fi[:-1]) * (ui[1:] - ui[:-1]))
+    fj = np.minimum(deltaF, fj)
     Fi = np.append(0, np.cumsum(fj))
 
     if plot_flag:
