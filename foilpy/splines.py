@@ -217,6 +217,17 @@ class BSplineCurve():
         Nip = N[0]
         return Nip
 
+    def basis_deriv(self, i, u):
+        """
+        Returns first derivative of basis functions at u
+        """
+        if p == 3:
+            s = u - self.knotsU[i-self.p]
+            dN1 = np.matmul(np.array([3*s**2, 2*s, 1, 0]), self.M_u[:,:,i-self.p])
+        else:
+            raise Exception("Computing basis derivatives with this method only works if degree=3.")
+        return dN1
+
     def find_span2(self, knots, u):
         """
         Find span for list of knots, rather than full knot vector.
@@ -332,7 +343,7 @@ class BSplineCurve():
             # Check 1: point coincidence
             chk1 = np.linalg.norm(CmP) < eps1
             # Check 2: zero cosine
-            chk2 = np.abs(np.dot(dC1, CmP)) / np.linalg.norm(dC1) / chk1 < eps2
+            chk2 = np.abs(np.dot(dC1, CmP)) / np.linalg.norm(dC1) / np.linalg.norm(CmP) < eps2
 
             if chk1 and chk2:
                 return ui
@@ -625,6 +636,121 @@ def knots_from_feature(Fi, ui, u_bar, n_knts, p, plot_flag=False):
     return U
 
 
+def constrained_approx(Q, Wq, ncp, p, D=None, s=-1, I=None, Wd=None, 
+                u_bar=None, U=None, plot_flag=True, plot_extra=False,
+                knot_spacing='adaptive', param_method='centripetal'):
+    """
+    Q = r+1 set of points to be fit,
+    Wq = r+1 set of weights. w>0 = unconstrained, w<0 = constrained. Default = 1.
+    D = s+1 set of derivatives
+    I = s+1 set of integers, defining which index of Q that D is referring to
+    Wd = s+1 set of derivative weights. w>0 = unconstrained and vice-versa.
+    ncp = no of control points in the resulting spline curve
+    p = degree of resulting spline curve
+
+    """
+    r = Q.shape[0] - 1
+    n = ncp - 1
+    n_knts = n + p + 2
+
+    ru = -1
+    rc = -1
+
+    for i in range(r + 1):
+        if Wq[i] > 0:
+            ru += 1 # Unconstrained
+        else:
+            rc += 1 # Constrained
+    su = -1
+    sc = -1
+    for j in range(s+1):
+        if Wd[j] > 0:
+            su += 1 # Unconstrained
+        else:
+            sc += 1 # Constrained
+
+    mu = ru + su + 1 # Unconstrained
+    mc = rc + sc + 1 # Constrained
+
+    if mc >= n or mc + n >= mu + 1:
+        raise Exception("No of inputs will not work.")
+    
+    # Get u_bar from spacing between supplied points
+    if np.all(u_bar == None):
+        u_bar = parameterise_curve(Q, method=param_method)
+
+    # Determine knot vector (if not provided)
+    if np.all(U == None):
+        if np.all(np.isclose(np.diff(Q, axis=0) , 0)):
+            knot_spacing = 'even_approx'
+        U = distribute_knots(u_bar, p, n_knts, Q=Q, method=knot_spacing, 
+                                plot_flag=plot_extra)
+
+    # Initialise a spline curve with degree and knot vector
+    curve = BSplineCurve(p, U)
+    curve.ndims = Q.shape[1]
+    curve.weights = np.ones((ncp,1))
+
+    j = 0
+    mu2 = 0
+    mc2 = 0
+    W = np.zeros((mu + 1))
+    N = np.zeros((mu+1, n+1))
+    M = np.zeros((mc+1, n+1))
+    S = np.zeros((mu + 1, curve.ndims))
+    T = np.zeros((mc + 1, curve.ndims))
+    for i in range(r+1):
+        span = curve.find_span(u_bar[i], curve.U, p, n)
+        dflag = 0
+        if j <= s:
+            if i == I[j]:
+                dflag = 1
+        Ntemp = curve.basis_funs(span, u_bar[i], U, p).reshape(-1)
+        if Wq[i] > 0:
+            W[mu2] = Wq[i]
+            N[mu2, span-p:span+1] = Ntemp
+            S[mu2,:] = W[mu2] * Q[i,:]
+            mu2 +=1
+        else:
+            M[mc2, span-p:span+1] = Ntemp
+            T[mc2,:] = Q[i,:]
+            mc2 += 1
+        if dflag == 1:
+            dNtemp = curve.basis_deriv(span, u_bar[i])
+            if Wd[j] > 0:
+                W[mu2] = Wd[j]
+                N[mu2, span-p:span+1] = dNtemp
+                S[mu2,:] = W[mu2] * D[j,:]
+                mu2 += 1
+            else:
+                M[mc2, span-p:span+1] = dNtemp
+                T[mc2,:] = D[j,:]
+                mc2 += 1
+            j += 1
+    
+    NtWN = np.matmul(N.transpose(), np.matmul(np.diag(W), N))
+    NtWS = np.matmul(N.transpose(), np.matmul(np.diag(W), S))
+
+    curve.contrl_pts = np.zeros((ncp, curve.ndims))
+    if mc < 0:
+        # No constraints
+        curve.contrl_pts = np.linalg.solve(NtWN, NtWS)
+        curve.Pw = np.hstack((curve.weights * curve.contrl_pts, curve.weights))
+    else:
+        NTWN_inv = np.linalg.inv(NtWN)
+        MNtWN_inv = np.matmul(M, NTWN_inv)
+        mat1 = np.matmul(MNtWN_inv, M.transpose())
+        mat2 = np.matmul(MNtWN_inv, NtWS) - T
+        A = np.linalg.solve(mat1, mat2)
+        curve.contrl_pts = np.matmul(NTWN_inv, NtWS - np.matmul(M.transpose(), A))
+        curve.Pw = np.hstack((curve.weights * curve.contrl_pts, curve.weights))
+
+    if plot_flag:
+        plot_approx(curve, Q, u_bar)
+
+    return curve
+
+
 def curve_approx(Q, ncp, p, u_bar=None, U=None, plot_flag=True,
                         knot_spacing='adaptive', param_method='centripetal'):
     """
@@ -694,28 +820,36 @@ def curve_approx(Q, ncp, p, u_bar=None, U=None, plot_flag=True,
     curve.Pw = np.hstack((curve.weights * curve.contrl_pts, curve.weights))
 
     if plot_flag:
-        Qnew = deepcopy(Q)
-        if curve.ndims == 1:
-            Qnew = np.hstack((u_bar.reshape(-1,1), Q.reshape(-1,1)))
-        fig, ax = curve.plot_curve(method=2, scaled=False, return_axes=True)
-        # Compute diff between eval pts and equivalent curve points
-        diff = np.linalg.norm(curve.eval_list(u_bar) - Q, axis=1)
-        # Plot scatter of points with color to indicate distance
+        plot_approx(curve, Q, u_bar)
+    
+    return curve
+
+
+def plot_approx(curve, Q, u_bar):
+    Qnew = deepcopy(Q)
+    if curve.ndims == 1:
+        Qnew = np.hstack((u_bar.reshape(-1,1), Q.reshape(-1,1)))
+    fig, ax = curve.plot_curve(pts=500, method=2, scaled=False, return_axes=True)
+    # Compute diff between eval pts and equivalent curve points
+    diff = np.linalg.norm(curve.eval_list(u_bar) - Q, axis=1)
+    # Plot scatter of points with color to indicate distance
+    if curve.ndims == 2:
+        diffplot = ax.scatter(Qnew[:,0],
+                        Qnew[:,1],
+                        c=diff, cmap='coolwarm', marker='*')
+    elif curve.ndims == 3:
         diffplot = ax.scatter(Qnew[:,0],
                         Qnew[:,1],
                         Qnew[:,2],
-                        c=diff, marker='.')
-        plt.colorbar(diffplot)
+                        c=diff, cmap='coolwarm', marker='*')
+    plt.colorbar(diffplot)
 
-        Q_rng = np.max((np.max(Q, axis=0) - np.min(Q, axis=0))) + 1e-12
-        # err_max = 1 / Q_rng * np.max(np.linalg.norm(curve.eval_list(u_bar) - Q))
-        # err_rms = 1 / Q_rng * np.sqrt(np.sum(np.linalg.norm(curve.eval_list(u_bar) - Q) ** 2) / m)
-        err_max = np.max(diff)
-        err_rms = np.sqrt(np.sum(diff ** 2) / m)
-        plt.title("Max error=%f, RMS error=%f"%(err_max, err_rms))
-
-    
-    return curve
+    Q_rng = np.max((np.max(Q, axis=0) - np.min(Q, axis=0))) + 1e-12
+    # err_max = 1 / Q_rng * np.max(np.linalg.norm(curve.eval_list(u_bar) - Q))
+    # err_rms = 1 / Q_rng * np.sqrt(np.sum(np.linalg.norm(curve.eval_list(u_bar) - Q) ** 2) / m)
+    err_max = np.max(diff)
+    err_rms = np.sqrt(np.sum(diff ** 2) / Q.shape[0])
+    plt.title("Max error=%f, RMS error=%f"%(err_max, err_rms))
 
 
 def curve_interp(Q, p, u_bar=None, U=None, param_method='centripetal',
