@@ -309,6 +309,48 @@ class BSplineCurve():
 
         return C
 
+    def project_pt_2_curve(self, P, nStart=100, eps1=1e-6, eps2=1e-6, maxIt=100):
+        """
+        Project a point onto the curve. i.e. find the parametric coordinate
+        that is closest to the given point.
+        """
+        # Do initial coarse search
+        uStart = np.linspace(self.U[0], self.U[-1], nStart)
+        xyStart = self.eval_list(uStart)
+        distStart = np.linalg.norm(xyStart - P, axis=1)
+        minID = np.argmin(distStart)
+        ui = uStart[minID]
+
+        # Use newton iteration to find clostest parametric point to P
+        convg = False
+        it = 0
+        while convg == False and it < maxIt:
+            it += 1
+            C, dC1, dC2 = self.eval_curve(ui, der1=True, der2=True)
+            CmP = C - P
+        
+            # Check 1: point coincidence
+            chk1 = np.linalg.norm(CmP) < eps1
+            # Check 2: zero cosine
+            chk2 = np.abs(np.dot(dC1, CmP)) / np.linalg.norm(dC1) / chk1 < eps2
+
+            if chk1 and chk2:
+                return ui
+            elif not chk1 or not chk2:
+                # Update parameter
+                uNew = ui - (np.dot(dC1, CmP)) / (np.dot(dC2, CmP) + np.sum(dC1**2))
+
+                # Check 3: ensure parameter within range
+                if uNew < self.U[0]:
+                    uNew = self.U[0]
+                if uNew > self.U[-1]:
+                    uNew = self.U[-1]
+                # Check 4: parameter does not change significantly
+                chk4 = np.linalg.norm((uNew - ui) * dC1) < eps1
+                if chk1 or chk2 or chk4:
+                    return uNew
+                ui = uNew
+
     def eval_curvature(self, u):
         """
         Return signed curvature of the spline at parametric location u.
