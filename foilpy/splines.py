@@ -221,7 +221,7 @@ class BSplineCurve():
         """
         Returns first derivative of basis functions at u
         """
-        if p == 3:
+        if self.p == 3:
             s = u - self.knotsU[i-self.p]
             dN1 = np.matmul(np.array([3*s**2, 2*s, 1, 0]), self.M_u[:,:,i-self.p])
         else:
