@@ -2,7 +2,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from foilpy.LL_functions import steady_LL_solve, plot_wake
-from foilpy.classes import EllipticalWing
+from foilpy.foildef import EllipticalWing
 # %matplotlib widget
 
 def test_elliptical_wing():
@@ -36,7 +36,9 @@ def test_elliptical_wing():
 
     # do steady lifting line solve
     min_dt = c_root/np.linalg.norm(u_flow)
-    out = steady_LL_solve(lifting_surface, u_flow, rho, dt=0.5, min_dt=min_dt, wake_rollup=False, include_shed_vorticity=True, nit=50, delta_visc=0.0)
+    out = steady_LL_solve(lifting_surface, u_flow, rho, dt=0.5, 
+                            min_dt=min_dt, wake_rollup=False,
+                            include_shed_vorticity=True, nit=50, delta_visc=0.0)
     u_gamma = out[0]
 
     # compute lift coefficient given steady vortex solve

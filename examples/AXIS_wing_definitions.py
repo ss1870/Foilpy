@@ -4,7 +4,7 @@ These are by no means accurate or representative.
 """
 
 import numpy as np
-from foilpy.classes import LiftingSurface
+from foilpy.foildef import LiftingSurface
 
 def bsc_810(re, nsegs=40, plot_flag=False):
     """

@@ -2,8 +2,9 @@
 #%%
 import numpy as np
 import AXIS_wing_definitions as AX_wings
-from foilpy.classes import FoilAssembly
+from foilpy.foildef import FoilAssembly
 from foilpy.LL_functions import steady_LL_solve
+from foilpy.analysis import analyse_foil, plot_wake
 from foilpy.utils import knts2ms
 # %matplotlib widget
 
@@ -39,12 +40,12 @@ print(foil.compute_foil_loads(-u_motion, RHO, out[0]))
 wake_elmt_table = out[3]
 elmtIDs = out[5]
 
-foil.plot_wake(lifting_surfaces, wake_elmt_table, elmtIDs)
+plot_wake(foil, lifting_surfaces, wake_elmt_table, elmtIDs)
 
 angle = np.linspace(-5,10,4)
 u_motion = np.array([[0, knts2ms(7), 0],
                      [0, knts2ms(10), 0],
                      [0, knts2ms(15), 0]])
-foil.analyse_foil(angle, -u_motion, RHO, reflected_wake=False, compare_roll_up=False)
+analyse_foil(foil, angle, -u_motion, RHO, reflected_wake=False, compare_roll_up=False)
 
 # stab.export_wing_2_stl('wing.stl')

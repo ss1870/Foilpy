@@ -1,5 +1,5 @@
 import numpy as np
-from foilpy.classes import LiftingSurface
+from foilpy.foildef import LiftingSurface
 
 def test_square_wing():
     """
