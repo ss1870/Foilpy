@@ -3,9 +3,10 @@ import foilpy.splines.curve as fsp
 import AXIS_wing_definitions as AX_wings
 import numpy as np
 from scipy.interpolate import interp1d
+import sys
 import importlib
 importlib.reload(fsp)
-%matplotlib widget
+# %matplotlib widget
 
 RE = 5 * 0.2 * 1025 / 0.00126
 wing = AX_wings.bsc_810(RE, nsegs=40, plot_flag=False)
@@ -34,7 +35,7 @@ curve = fsp.curve_interp(Q, p, plot_flag=True)
 curve = fsp.curve_approx(coords, 31, p, u_bar=None, U=None, plot_flag=True, 
                         knot_spacing='adaptive', param_method='Fang')
 
-a=rgbrhj
+sys.exit()
 ## set up optimisation
 
 ## Wrapper

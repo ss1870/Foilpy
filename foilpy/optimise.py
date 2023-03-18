@@ -22,6 +22,7 @@ class Optimiser():
         Call optimiser function.
         """
         obj_fun = lambda x: self.wrapper.call(x, return_type='objective')
+        x0 = []
         res = minimize(obj_fun,
                         x0,
                         args=(),
@@ -74,4 +75,4 @@ class OptiWrapper():
 
         # Extract objective and constraints
 
-        return fx, gx
+        return [] # fx, gx

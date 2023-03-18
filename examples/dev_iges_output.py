@@ -5,12 +5,13 @@ import AXIS_wing_definitions as AX_wings
 from foilpy.utils import cosspace, rotation_matrix, apply_rotation, unique_unsrt, reinterp_arc_length
 from foilpy.export import create_socket_coords, renorm_coords, gen_single_section, prep_afoils, add_socket_2_coords, spanwise_geom, get_pt_spacing
 from scipy.interpolate import interp1d, CubicSpline, splprep, splev, pchip_interpolate, PchipInterpolator
-%matplotlib widget
+import sys
+# %matplotlib widget
 
 import foilpy.export as ex
 import importlib
-import foilpy.splines as spl
-import foilpy.surface as sur
+import foilpy.splines.curve as spl
+import foilpy.splines.surface as sur
 import importlib
 importlib.reload(spl)
 importlib.reload(sur)
@@ -119,7 +120,7 @@ coords1, le_id1 = gen_single_section(afoil_coords_interpolator,
     # - multi-part loft might be the solution to this? if smooth enough at intersections
 
 
-a=dgrdhjb
+sys.exit()
 points_all = np.empty((0,3))
 points_all1 = np.zeros((ncs_pts,ref_axis.shape[0],3))
 LE_pts = np.empty((0,3))

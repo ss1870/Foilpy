@@ -9,6 +9,6 @@ setup(
     author_email='ss1870@my.bristol.ac.uk',
     license='Apache-2.0',
     # packages=find_packages()
-    packages=['foilpy', 'foilpy.myaeropy'],
+    packages=['foilpy', 'foilpy.splines', 'foilpy.myaeropy'],
     include_package_data=True
 )
