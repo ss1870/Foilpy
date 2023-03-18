@@ -1,5 +1,5 @@
 #%%
-import foilpy.splines as fsp
+import foilpy.splines.curve as fsp
 import AXIS_wing_definitions as AX_wings
 import numpy as np
 from scipy.interpolate import interp1d

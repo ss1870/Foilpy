@@ -4,7 +4,7 @@ from foilpy.utils import cosspace, rotation_matrix, apply_rotation, unique_unsrt
 from scipy.interpolate import interp1d, CubicSpline, splprep, splev, pchip_interpolate, PchipInterpolator
 import matplotlib.pyplot as plt
 from copy import deepcopy
-import foilpy.splines as spl
+import foilpy.splines.curve as spl
 
 def gen_single_section(coord_interper, ncs_pts, t2c, chord, washout, 
                     ref_axis, mounting_angle, TE_thick, plot_flag=False):

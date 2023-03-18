@@ -1,6 +1,6 @@
 #%%
 import numpy as np
-import foilpy.splines as spl
+import foilpy.splines.curve as spl
 # import matplotlib.pyplot as plt
 # import importlib
 # importlib.reload(spl)
