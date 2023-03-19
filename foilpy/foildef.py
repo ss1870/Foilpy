@@ -210,7 +210,7 @@ class LiftingSurface:
         self.aerofoil_naca = []
 
         if spline_pts != []:
-            self.generate_coords_spline(spline_pts, npts=1000, plot_flag=plot_flag)
+            self.generate_coords_spline(spline_pts, npts=1001, plot_flag=plot_flag)
         elif spline_pts == [] and tip_chord != []:
             self.generate_coords_simple(npts=1001)
         else:
@@ -265,7 +265,7 @@ class LiftingSurface:
 
         self.qu_chord_loc = 0.75 * self.LE + 0.25 * self.TE
 
-    def generate_coords_spline(self, spline_pts, plot_spline=False, plot_flag=False, npts=1000):
+    def generate_coords_spline(self, spline_pts, plot_spline=False, plot_flag=False, npts=1001):
         x = spline_pts[:,0]
         x = np.concatenate((x[:-1], 
                             np.flip(x[1:]),
@@ -305,7 +305,7 @@ class LiftingSurface:
         RHS_TE = np.unique(np.stack((x_new[~mask_LHS & mask_TE], y_new[~mask_LHS & mask_TE_RHS])).T, axis=0)
         LE = np.vstack((LHS_LE, RHS_LE))
         TE = np.vstack((LHS_TE, RHS_TE))
-        self.x = np.linspace(np.min(x_new), np.max(x_new), 1000)
+        self.x = np.linspace(np.min(x_new), np.max(x_new), npts)
         LE = np.interp(self.x, LE[:,0], LE[:,1])
         TE = np.interp(self.x, TE[:,0], TE[:,1])
 
@@ -328,6 +328,7 @@ class LiftingSurface:
             self.TE[:,2] = (self.TE[:,1] - self.ref_axis[:,1]) * s + (self.TE[:,2] - self.ref_axis[:,2]) * c + self.ref_axis[:,2]
         
         self.qu_chord_loc = 0.75 * self.LE + 0.25 * self.TE
+        self.chord = self.LE - self.TE
 
         if plot_flag:
             fig, ax = plt.subplots()
