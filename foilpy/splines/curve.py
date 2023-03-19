@@ -833,7 +833,7 @@ def plot_approx(curve, Q, u_bar):
     # Compute diff between eval pts and equivalent curve points
     diff = np.linalg.norm(curve.eval_list(u_bar) - Q, axis=1)
     # Plot scatter of points with color to indicate distance
-    if curve.ndims == 2:
+    if curve.ndims == 1 or curve.ndims == 2:
         diffplot = ax.scatter(Qnew[:,0],
                         Qnew[:,1],
                         c=diff, cmap='coolwarm', marker='*')
