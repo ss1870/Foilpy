@@ -29,9 +29,12 @@ foil = FoilAssembly(front_wing,
                     stabiliser_angle=-2,
                     units='mm')
 
-baseDir = 'C:/SmartGit/foilpy/examples'
+baseDir = 'C:/Git/foilpy/examples'
 
-mux = MachUpXWrapper(foil, baseDir)
+mux = MachUpXWrapper(baseDir)
+mux.foilFromFoilAssembly(foil)
+mux.setVelocitykts(15.0)
+mux.setAngleDeg(2.0)
 
 my_scene = MX.Scene(mux._inputDict)
 my_scene.display_wireframe(show_legend=True)
