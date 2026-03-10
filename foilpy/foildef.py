@@ -209,7 +209,7 @@ class LiftingSurface:
         self.polar = None
         self.aerofoil_naca = []
 
-        if spline_pts != []:
+        if len(spline_pts):
             self.generate_coords_spline(spline_pts, npts=1001, plot_flag=plot_flag)
         elif spline_pts == [] and tip_chord != []:
             self.generate_coords_simple(npts=1001)

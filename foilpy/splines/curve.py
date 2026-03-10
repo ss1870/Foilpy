@@ -435,23 +435,23 @@ class BSplineCurve():
             Px = np.insert(Px, 1, (2*Px[0]+Px[1])/3)
             Px = np.insert(Px, len(Px)-1, (2*Px[-1]+Px[-2])/3)
             if np.any(extra_pts != None):
-                ax.plot(extra_pts[:,0], extra_pts[:,1], linestyle='', marker='.')
-            ax.plot(x, C[:,0])
+                ax.plot(extra_pts[:,0], extra_pts[:,1], linestyle='', marker='.', label='extra pts')
+            ax.plot(x, C[:,0], label='B-spline curve')
 
             if plotCPs:
-                ax.plot(Px, self.contrl_pts[:,0], linestyle='--', marker='.')
+                ax.plot(Px, self.contrl_pts[:,0], linestyle='--', marker='.', label='Control Points')
 
         elif self.ndims == 2:
             if np.any(extra_pts != None):
-                ax.plot(extra_pts[:,0], extra_pts[:,1], linestyle='', marker='.')
-            ax.plot(C[:,0], C[:,1])
+                ax.plot(extra_pts[:,0], extra_pts[:,1], linestyle='', marker='.', label='extra pts')
+            ax.plot(C[:,0], C[:,1], label='B-spline curve')
             if plotCPs:
-                ax.plot(self.contrl_pts[:,0], self.contrl_pts[:,1], linestyle='--', marker='.')
+                ax.plot(self.contrl_pts[:,0], self.contrl_pts[:,1], linestyle='--', marker='.', label='Control Points')
 
             if scaled:
                 ax.axis('scaled')
         elif self.ndims == 3:
-            ax.plot3D(C[:,0], C[:,1], C[:,2])
+            ax.plot3D(C[:,0], C[:,1], C[:,2], label='B-spline curve')
             if np.any(extra_pts != None):
                 ax.plot3D(extra_pts[:,0], extra_pts[:,1], extra_pts[:,2], linestyle='', marker='.', color='black')
             if plotCPs:
@@ -836,13 +836,14 @@ def plot_approx(curve, Q, u_bar):
     if curve.ndims == 1 or curve.ndims == 2:
         diffplot = ax.scatter(Qnew[:,0],
                         Qnew[:,1],
-                        c=diff, cmap='coolwarm', marker='*')
+                        c=diff, cmap='coolwarm', marker='*', label='Data pts')
     elif curve.ndims == 3:
         diffplot = ax.scatter(Qnew[:,0],
                         Qnew[:,1],
                         Qnew[:,2],
-                        c=diff, cmap='coolwarm', marker='*')
+                        c=diff, cmap='coolwarm', marker='*', label='Data pts')
     plt.colorbar(diffplot)
+    ax.legend()
 
     Q_rng = np.max((np.max(Q, axis=0) - np.min(Q, axis=0))) + 1e-12
     # err_max = 1 / Q_rng * np.max(np.linalg.norm(curve.eval_list(u_bar) - Q))
